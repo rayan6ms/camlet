@@ -48,7 +48,10 @@ export interface RendererLocale {
 		};
 	};
 	about: {
+		windowTitle: string;
 		description: string;
+		licenseLabel: string;
+		readmeTitle: string;
 		labels: {
 			appName: string;
 			version: string;
@@ -112,6 +115,7 @@ export interface RendererLocale {
 		labels: {
 			theme: string;
 			shape: string;
+			cornerRoundness: string;
 			fitMode: string;
 			ringColor: string;
 			ringThickness: string;
@@ -119,13 +123,17 @@ export interface RendererLocale {
 		};
 		themes: {
 			mint: string;
-			coral: string;
-			sky: string;
+			ocean: string;
+			ember: string;
+			orchid: string;
+			grove: string;
 			graphite: string;
 		};
 		shapes: {
 			circle: string;
 			roundedSquare: string;
+			diamond: string;
+			rectangle: string;
 		};
 		fitModes: {
 			cover: string;

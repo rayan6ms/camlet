@@ -1,12 +1,5 @@
+import { app, BrowserWindow, ipcMain } from "electron/main";
 import {
-	app,
-	BrowserWindow,
-	ipcMain,
-	Menu,
-	type MenuItemConstructorOptions,
-} from "electron/main";
-import {
-	type CamletContextMenuAction,
 	type CamletContextMenuRequest,
 	ipcChannels,
 } from "../../shared/ipc.js";
@@ -17,6 +10,7 @@ import {
 	screenPointSchema,
 	windowStateSchema,
 } from "../../shared/window-state.js";
+import { getAboutInfo } from "../about/about-info.js";
 import { createAppBootstrap, resolveDisplayProtocol } from "../bootstrap.js";
 import type { SettingsStoreService } from "../services/settings-store.js";
 import { applyMainWindowShape } from "../windows/window-shape.js";
@@ -26,246 +20,10 @@ import {
 	persistWindowStateNow,
 	setMainWindowState,
 } from "../windows/window-state.js";
-
-const ringThicknessOptions = [4, 8, 12, 16];
-
-function sendContextMenuAction(
-	window: BrowserWindow,
-	action: CamletContextMenuAction,
-) {
-	if (window.isDestroyed() || window.webContents.isDestroyed()) {
-		return;
-	}
-
-	window.webContents.send(ipcChannels.contextMenuAction, action);
-}
-
-function createContextMenuTemplate(
-	window: BrowserWindow,
-	request: CamletContextMenuRequest,
-): MenuItemConstructorOptions[] {
-	const cameraSubmenu =
-		request.cameraOptions.length > 0
-			? request.cameraOptions.map<MenuItemConstructorOptions>((device) => ({
-					label: device.label,
-					type: "radio",
-					checked: device.deviceId === request.selectedCameraDeviceId,
-					click: () => {
-						sendContextMenuAction(window, {
-							type: "set-camera",
-							deviceId: device.deviceId,
-						});
-					},
-				}))
-			: [
-					{
-						label: request.labels.noDevices,
-						enabled: false,
-					},
-				];
-
-	return [
-		{
-			label: request.labels.theme,
-			submenu: [
-				{
-					label: request.labels.themeOptions.mint,
-					type: "radio",
-					checked: request.selectedThemeId === "mint",
-					click: () => {
-						sendContextMenuAction(window, {
-							type: "set-theme",
-							themeId: "mint",
-						});
-					},
-				},
-				{
-					label: request.labels.themeOptions.coral,
-					type: "radio",
-					checked: request.selectedThemeId === "coral",
-					click: () => {
-						sendContextMenuAction(window, {
-							type: "set-theme",
-							themeId: "coral",
-						});
-					},
-				},
-				{
-					label: request.labels.themeOptions.sky,
-					type: "radio",
-					checked: request.selectedThemeId === "sky",
-					click: () => {
-						sendContextMenuAction(window, {
-							type: "set-theme",
-							themeId: "sky",
-						});
-					},
-				},
-				{
-					label: request.labels.themeOptions.graphite,
-					type: "radio",
-					checked: request.selectedThemeId === "graphite",
-					click: () => {
-						sendContextMenuAction(window, {
-							type: "set-theme",
-							themeId: "graphite",
-						});
-					},
-				},
-			],
-		},
-		{
-			label: request.labels.shape,
-			submenu: [
-				{
-					label: request.labels.shapeOptions.circle,
-					type: "radio",
-					checked: request.selectedShape === "circle",
-					click: () => {
-						sendContextMenuAction(window, {
-							type: "set-shape",
-							shape: "circle",
-						});
-					},
-				},
-				{
-					label: request.labels.shapeOptions.roundedSquare,
-					type: "radio",
-					checked: request.selectedShape === "rounded-square",
-					click: () => {
-						sendContextMenuAction(window, {
-							type: "set-shape",
-							shape: "rounded-square",
-						});
-					},
-				},
-			],
-		},
-		{
-			label: request.labels.language,
-			submenu: Object.entries(request.labels.languageOptions).map(
-				([language, label]) => ({
-					label,
-					type: "radio",
-					checked: language === request.selectedLanguage,
-					click: () => {
-						sendContextMenuAction(window, {
-							type: "set-language",
-							language:
-								language as CamletContextMenuRequest["selectedLanguage"],
-						});
-					},
-				}),
-			),
-		},
-		{
-			label: request.labels.cameraInput,
-			submenu: cameraSubmenu,
-		},
-		{
-			type: "separator",
-		},
-		{
-			label: request.labels.resize,
-			click: () => {
-				sendContextMenuAction(window, {
-					type: "enter-resize-mode",
-				});
-			},
-		},
-		{
-			label: request.labels.advancedSettings,
-			submenu: [
-				{
-					label: `${request.labels.status}: ${request.cameraStatusLabel}`,
-					enabled: false,
-				},
-				{
-					label: `${request.labels.activeDevice}: ${request.activeCameraLabel}`,
-					enabled: false,
-				},
-				{
-					label: `${request.labels.displayProtocol}: ${request.displayProtocolLabel}`,
-					enabled: false,
-				},
-				{
-					type: "separator",
-				},
-				{
-					label: request.labels.fitMode,
-					submenu: [
-						{
-							label: request.labels.fitModeOptions.cover,
-							type: "radio",
-							checked: request.selectedFitMode === "cover",
-							click: () => {
-								sendContextMenuAction(window, {
-									type: "set-fit-mode",
-									fitMode: "cover",
-								});
-							},
-						},
-						{
-							label: request.labels.fitModeOptions.contain,
-							type: "radio",
-							checked: request.selectedFitMode === "contain",
-							click: () => {
-								sendContextMenuAction(window, {
-									type: "set-fit-mode",
-									fitMode: "contain",
-								});
-							},
-						},
-					],
-				},
-				{
-					label: request.labels.ringThickness,
-					submenu: ringThicknessOptions.map<MenuItemConstructorOptions>(
-						(ringThickness) => ({
-							label: `${ringThickness}px`,
-							type: "radio",
-							checked: request.selectedRingThickness === ringThickness,
-							click: () => {
-								sendContextMenuAction(window, {
-									type: "set-ring-thickness",
-									ringThickness,
-								});
-							},
-						}),
-					),
-				},
-				{
-					type: "separator",
-				},
-				{
-					label: request.labels.retryCamera,
-					click: () => {
-						sendContextMenuAction(window, {
-							type: "retry-camera",
-						});
-					},
-				},
-				{
-					label: request.labels.resetAppearance,
-					click: () => {
-						sendContextMenuAction(window, {
-							type: "reset-appearance",
-						});
-					},
-				},
-			],
-		},
-		{
-			type: "separator",
-		},
-		{
-			label: request.labels.closeApp,
-			click: () => {
-				app.quit();
-			},
-		},
-	];
-}
+import {
+	showMainWindowContextMenu,
+	updateContextMenuRequest,
+} from "./context-menu.js";
 
 function resolveWindow(webContents: Electron.WebContents): BrowserWindow {
 	const window = BrowserWindow.fromWebContents(webContents);
@@ -279,7 +37,12 @@ function resolveWindow(webContents: Electron.WebContents): BrowserWindow {
 	return window;
 }
 
-export function registerAppIpc(settingsStore: SettingsStoreService) {
+export function registerAppIpc(
+	settingsStore: SettingsStoreService,
+	options: {
+		openAboutWindow: () => Promise<void>;
+	},
+) {
 	const activeDrags = new WeakMap<BrowserWindow, DragOffset>();
 
 	ipcMain.handle(ipcChannels.getBootstrap, () => {
@@ -294,6 +57,7 @@ export function registerAppIpc(settingsStore: SettingsStoreService) {
 				packaged: app.isPackaged,
 				displayProtocol: resolveDisplayProtocol({
 					platform: process.platform,
+					ozonePlatform: app.commandLine.getSwitchValue("ozone-platform"),
 					sessionType: process.env.XDG_SESSION_TYPE,
 					waylandDisplay: process.env.WAYLAND_DISPLAY,
 					display: process.env.DISPLAY,
@@ -306,6 +70,10 @@ export function registerAppIpc(settingsStore: SettingsStoreService) {
 			issues: settingsStore.getBootstrapIssues(),
 		});
 	});
+
+	ipcMain.handle(ipcChannels.getAboutInfo, () => getAboutInfo());
+
+	ipcMain.handle(ipcChannels.openAboutWindow, () => options.openAboutWindow());
 
 	ipcMain.handle(ipcChannels.getSettings, () => settingsStore.getSettings());
 
@@ -333,8 +101,19 @@ export function registerAppIpc(settingsStore: SettingsStoreService) {
 				overlayAppearanceSettingsPatchSchema.parse(patch),
 			);
 
-			applyMainWindowShape(window, nextSettings.overlayShape);
+			applyMainWindowShape(window, {
+				overlayShape: nextSettings.overlayShape,
+				cornerRoundness: nextSettings.cornerRoundness,
+			});
 			return nextSettings;
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.updateContextMenuState,
+		(event, request: CamletContextMenuRequest) => {
+			const window = resolveWindow(event.sender);
+			updateContextMenuRequest(window, request);
 		},
 	);
 
@@ -386,12 +165,8 @@ export function registerAppIpc(settingsStore: SettingsStoreService) {
 		ipcChannels.showContextMenu,
 		(event, request: CamletContextMenuRequest) => {
 			const window = resolveWindow(event.sender);
-			const menu = Menu.buildFromTemplate(
-				createContextMenuTemplate(window, request),
-			);
-			menu.popup({
-				window,
-			});
+			updateContextMenuRequest(window, request);
+			showMainWindowContextMenu(window);
 		},
 	);
 }

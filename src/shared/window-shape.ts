@@ -52,9 +52,10 @@ function getRoundedSquareRow(
 	width: number,
 	height: number,
 	rowCenterY: number,
+	cornerRoundness: number,
 ): ShapeRow {
 	const radius = Math.min(
-		getRoundedSquareRadius(Math.min(width, height)),
+		getRoundedSquareRadius(Math.min(width, height), cornerRoundness),
 		width / 2,
 		height / 2,
 	);
@@ -76,6 +77,56 @@ function getRoundedSquareRow(
 		radius - Math.sqrt(radius * radius - distanceFromCurve * distanceFromCurve);
 
 	return toRow(horizontalInset, width - horizontalInset * 2, width);
+}
+
+function getRectangleRow(
+	width: number,
+	height: number,
+	rowCenterY: number,
+	cornerRoundness: number,
+): ShapeRow {
+	const horizontalInset = width * 0.16;
+	const innerWidth = width - horizontalInset * 2;
+	const radius = Math.min(
+		getRoundedSquareRadius(Math.min(innerWidth, height), cornerRoundness),
+		innerWidth / 2,
+		height / 2,
+	);
+	const upperCurveLimit = radius;
+	const lowerCurveLimit = height - radius;
+
+	if (rowCenterY >= upperCurveLimit && rowCenterY <= lowerCurveLimit) {
+		return toRow(horizontalInset, innerWidth, width);
+	}
+
+	const distanceFromCurve =
+		rowCenterY < upperCurveLimit
+			? upperCurveLimit - rowCenterY
+			: rowCenterY - lowerCurveLimit;
+	const curveInset =
+		radius - Math.sqrt(radius * radius - distanceFromCurve * distanceFromCurve);
+
+	return toRow(
+		horizontalInset + curveInset,
+		innerWidth - curveInset * 2,
+		width,
+	);
+}
+
+function getDiamondRow(
+	width: number,
+	height: number,
+	rowCenterY: number,
+): ShapeRow | null {
+	const centerY = height / 2;
+	const normalizedDistance = Math.abs(rowCenterY - centerY) / centerY;
+
+	if (normalizedDistance > 1) {
+		return null;
+	}
+
+	const rowWidth = width * (1 - normalizedDistance);
+	return toRow(width / 2 - rowWidth / 2, rowWidth, width);
 }
 
 function compressRows(rows: Array<ShapeRow | null>): WindowShapeRectangle[] {
@@ -114,6 +165,7 @@ export function createWindowShapeRectangles(
 	width: number,
 	height: number,
 	shape: OverlayShape,
+	cornerRoundness = 26,
 ): WindowShapeRectangle[] {
 	if (width <= 0 || height <= 0) {
 		return [];
@@ -122,9 +174,18 @@ export function createWindowShapeRectangles(
 	const rows = Array.from({ length: height }, (_, y) => {
 		const rowCenterY = y + 0.5;
 
-		return shape === "circle"
-			? getEllipseRow(width, height, rowCenterY)
-			: getRoundedSquareRow(width, height, rowCenterY);
+		switch (shape) {
+			case "circle":
+				return getEllipseRow(width, height, rowCenterY);
+			case "rounded-square":
+				return getRoundedSquareRow(width, height, rowCenterY, cornerRoundness);
+			case "rectangle":
+				return getRectangleRow(width, height, rowCenterY, cornerRoundness);
+			case "diamond":
+				return getDiamondRow(width, height, rowCenterY);
+		}
+
+		return null;
 	});
 
 	return compressRows(rows);

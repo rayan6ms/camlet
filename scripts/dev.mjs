@@ -10,13 +10,47 @@ const devServerUrl = "http://127.0.0.1:5173";
 const distElectronPath = path.join(projectRoot, "dist-electron");
 const mainEntryPath = path.join(projectRoot, "dist-electron/main/index.js");
 const electronOnly = process.argv.includes("--electron-only");
+const ignoredElectronStderrPatterns = [
+	/Add _NET_RESTACK_WINDOW to kAtomsToCache/,
+	/GetVSyncParametersIfAvailable\(\) failed/,
+	/Frame latency is negative:/,
+	/Dequeued v4l2 buffer contains corrupted data/,
+];
 
 const managedChildren = [];
 let electronProcess = null;
 let isRestarting = false;
 let isShuttingDown = false;
 
-function spawnManagedProcess(label, args, extraEnv = {}) {
+function forwardOutput(stream, target, ignoredPatterns = []) {
+	let buffered = "";
+
+	stream.setEncoding("utf8");
+	stream.on("data", (chunk) => {
+		buffered += chunk;
+		const lines = buffered.split("\n");
+		buffered = lines.pop() ?? "";
+
+		for (const line of lines) {
+			if (ignoredPatterns.some((pattern) => pattern.test(line))) {
+				continue;
+			}
+
+			target.write(`${line}\n`);
+		}
+	});
+
+	stream.on("end", () => {
+		if (
+			buffered.length > 0 &&
+			!ignoredPatterns.some((pattern) => pattern.test(buffered))
+		) {
+			target.write(buffered);
+		}
+	});
+}
+
+function spawnManagedProcess(label, args, extraEnv = {}, options = {}) {
 	const env = {
 		...process.env,
 		...extraEnv,
@@ -31,8 +65,18 @@ function spawnManagedProcess(label, args, extraEnv = {}) {
 	const child = spawn(pnpmBinary, args, {
 		cwd: projectRoot,
 		env,
-		stdio: "inherit",
+		stdio:
+			options.filterStderr === true ? ["inherit", "pipe", "pipe"] : "inherit",
 	});
+
+	if (options.filterStderr === true) {
+		forwardOutput(child.stdout, process.stdout);
+		forwardOutput(
+			child.stderr,
+			process.stderr,
+			options.ignoredStderrPatterns ?? [],
+		);
+	}
 
 	child.on("exit", (code) => {
 		if (isShuttingDown || label === "electron") {
@@ -72,17 +116,26 @@ async function waitForRenderer() {
 }
 
 function startElectron() {
+	const electronArgs = ["exec", "electron"];
+
+	if (
+		process.platform === "linux" &&
+		process.env.CAMLET_PREFER_WAYLAND !== "1"
+	) {
+		electronArgs.push("--ozone-platform=x11");
+	}
+
+	electronArgs.push(".");
 	const electronEnv = {
 		NODE_ENV: "development",
 		VITE_DEV_SERVER_URL: devServerUrl,
 		ELECTRON_RUN_AS_NODE: undefined,
 	};
 
-	electronProcess = spawnManagedProcess(
-		"electron",
-		["exec", "electron", "."],
-		electronEnv,
-	);
+	electronProcess = spawnManagedProcess("electron", electronArgs, electronEnv, {
+		filterStderr: true,
+		ignoredStderrPatterns: ignoredElectronStderrPatterns,
+	});
 
 	electronProcess.on("exit", (code) => {
 		if (isShuttingDown || isRestarting) {

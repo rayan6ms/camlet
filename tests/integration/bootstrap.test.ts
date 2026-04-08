@@ -93,6 +93,20 @@ describe("app bootstrap helpers", () => {
 		expect(
 			resolveDisplayProtocol({
 				platform: "linux",
+				ozonePlatform: "x11",
+				sessionType: "wayland",
+			}),
+		).toBe("x11");
+		expect(
+			resolveDisplayProtocol({
+				platform: "linux",
+				ozonePlatform: "wayland",
+				sessionType: "x11",
+			}),
+		).toBe("wayland");
+		expect(
+			resolveDisplayProtocol({
+				platform: "linux",
 				sessionType: "wayland",
 			}),
 		).toBe("wayland");

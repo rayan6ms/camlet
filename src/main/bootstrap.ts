@@ -35,6 +35,7 @@ export function resolveDisplayProtocol(options?: {
 	sessionType?: string | null | undefined;
 	waylandDisplay?: string | null | undefined;
 	display?: string | null | undefined;
+	ozonePlatform?: string | null | undefined;
 }): AppDisplayProtocol {
 	const platform = options?.platform?.trim() || process.platform;
 
@@ -48,6 +49,16 @@ export function resolveDisplayProtocol(options?: {
 
 	if (platform !== "linux") {
 		return "unknown";
+	}
+
+	const ozonePlatform = options?.ozonePlatform?.trim().toLowerCase();
+
+	if (ozonePlatform === "x11") {
+		return "x11";
+	}
+
+	if (ozonePlatform === "wayland") {
+		return "wayland";
 	}
 
 	const sessionType = options?.sessionType?.trim().toLowerCase();

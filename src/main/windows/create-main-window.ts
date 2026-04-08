@@ -1,10 +1,11 @@
 import { BrowserWindow } from "electron/main";
-import type { OverlayShape } from "../../shared/appearance.js";
+import type { OverlayAppearanceSettings } from "../../shared/appearance.js";
 import {
 	minimumWindowHeight,
 	minimumWindowWidth,
 	type WindowState,
 } from "../../shared/window-state.js";
+import { showMainWindowContextMenu } from "../ipc/context-menu.js";
 import {
 	isAllowedNavigationTarget,
 	type RendererAssetPolicy,
@@ -12,7 +13,10 @@ import {
 import { applyMainWindowShape } from "./window-shape.js";
 
 export interface MainWindowAssets extends RendererAssetPolicy {
-	overlayShape: OverlayShape;
+	appearance: Pick<
+		OverlayAppearanceSettings,
+		"overlayShape" | "cornerRoundness"
+	>;
 	preloadPath: string;
 	windowState: WindowState;
 }
@@ -145,7 +149,7 @@ function maintainAlwaysOnTop(window: BrowserWindow) {
 }
 
 export async function createMainWindow({
-	overlayShape,
+	appearance,
 	preloadPath,
 	rendererHtmlPath,
 	rendererUrl,
@@ -190,8 +194,9 @@ export async function createMainWindow({
 	});
 	window.on("system-context-menu", (event) => {
 		event.preventDefault();
+		showMainWindowContextMenu(window);
 	});
-	applyMainWindowShape(window, overlayShape);
+	applyMainWindowShape(window, appearance);
 	maintainAlwaysOnTop(window);
 	hardenWindowNavigation(window, rendererPolicy);
 	attachDevWindowDiagnostics(window, rendererPolicy);

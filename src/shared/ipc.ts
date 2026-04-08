@@ -1,3 +1,4 @@
+import type { AboutInfo } from "./about.js";
 import type { OverlayShape, PreviewFitMode } from "./appearance.js";
 import type {
 	AppBootstrap,
@@ -21,10 +22,12 @@ export interface CameraMenuOption {
 export interface CamletContextMenuLabels {
 	theme: string;
 	shape: string;
+	cornerRoundness: string;
 	language: string;
 	cameraInput: string;
 	resize: string;
 	advancedSettings: string;
+	aboutCamlet: string;
 	closeApp: string;
 	retryCamera: string;
 	resetAppearance: string;
@@ -37,13 +40,17 @@ export interface CamletContextMenuLabels {
 	noDevices: string;
 	themeOptions: {
 		mint: string;
-		coral: string;
-		sky: string;
+		ocean: string;
+		ember: string;
+		orchid: string;
+		grove: string;
 		graphite: string;
 	};
 	shapeOptions: {
 		circle: string;
 		roundedSquare: string;
+		diamond: string;
+		rectangle: string;
 	};
 	fitModeOptions: Record<PreviewFitMode, string>;
 	languageOptions: Record<AppLanguage, string>;
@@ -51,11 +58,19 @@ export interface CamletContextMenuLabels {
 
 export interface CamletContextMenuRequest {
 	labels: CamletContextMenuLabels;
-	selectedThemeId: "mint" | "coral" | "sky" | "graphite" | null;
+	selectedThemeId:
+		| "mint"
+		| "ocean"
+		| "ember"
+		| "orchid"
+		| "grove"
+		| "graphite"
+		| null;
 	selectedShape: OverlayShape;
 	selectedLanguage: AppLanguage;
 	selectedFitMode: PreviewFitMode;
 	selectedRingThickness: number;
+	selectedCornerRoundness: number;
 	cameraOptions: CameraMenuOption[];
 	selectedCameraDeviceId: string | null;
 	cameraStatusLabel: string;
@@ -66,11 +81,15 @@ export interface CamletContextMenuRequest {
 export type CamletContextMenuAction =
 	| {
 			type: "set-theme";
-			themeId: "mint" | "coral" | "sky" | "graphite";
+			themeId: "mint" | "ocean" | "ember" | "orchid" | "grove" | "graphite";
 	  }
 	| {
 			type: "set-shape";
 			shape: OverlayShape;
+	  }
+	| {
+			type: "set-corner-roundness";
+			cornerRoundness: number;
 	  }
 	| {
 			type: "set-language";
@@ -98,6 +117,9 @@ export type CamletContextMenuAction =
 			type: "enter-resize-mode";
 	  }
 	| {
+			type: "open-about-window";
+	  }
+	| {
 			type: "close-app";
 	  };
 
@@ -113,7 +135,11 @@ export const ipcChannels = {
 	endWindowDrag: "window:end-drag",
 	setWindowResizable: "window:set-resizable",
 	setWindowState: "window:set-state",
+	getAboutInfo: "app:get-about-info",
+	openAboutWindow: "app:open-about-window",
+	updateContextMenuState: "app:update-context-menu-state",
 	showContextMenu: "app:show-context-menu",
+	contextMenuRequested: "app:context-menu-requested",
 	contextMenuAction: "app:context-menu-action",
 	windowStateChanged: "window:state-changed",
 } as const;
@@ -131,7 +157,11 @@ export interface CamletApi {
 	endWindowDrag(): Promise<void>;
 	setWindowResizable(resizable: boolean): Promise<void>;
 	setWindowState(windowState: WindowState): Promise<WindowState>;
+	getAboutInfo(): Promise<AboutInfo>;
+	openAboutWindow(): Promise<void>;
+	updateContextMenuState(request: CamletContextMenuRequest): Promise<void>;
 	showContextMenu(request: CamletContextMenuRequest): Promise<void>;
+	onContextMenuRequested(listener: () => void): () => void;
 	onContextMenuAction(
 		listener: (action: CamletContextMenuAction) => void,
 	): () => void;

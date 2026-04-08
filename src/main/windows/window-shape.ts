@@ -1,5 +1,5 @@
 import type { BrowserWindow } from "electron/main";
-import type { OverlayShape } from "../../shared/appearance.js";
+import type { OverlayAppearanceSettings } from "../../shared/appearance.js";
 import { createWindowShapeRectangles } from "../../shared/window-shape.js";
 
 const supportsWindowShape =
@@ -7,12 +7,22 @@ const supportsWindowShape =
 
 export function applyMainWindowShape(
 	window: BrowserWindow,
-	overlayShape: OverlayShape,
+	appearance: Pick<
+		OverlayAppearanceSettings,
+		"overlayShape" | "cornerRoundness"
+	>,
 ) {
 	if (!supportsWindowShape || window.isDestroyed()) {
 		return;
 	}
 
 	const { width, height } = window.getBounds();
-	window.setShape(createWindowShapeRectangles(width, height, overlayShape));
+	window.setShape(
+		createWindowShapeRectangles(
+			width,
+			height,
+			appearance.overlayShape,
+			appearance.cornerRoundness,
+		),
+	);
 }

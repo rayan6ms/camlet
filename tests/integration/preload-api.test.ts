@@ -13,11 +13,74 @@ describe("preload API contract", () => {
 			removeListener,
 		};
 		const api = createCamletApi(mockIpcRenderer);
+		const contextMenuPayload = {
+			labels: {
+				theme: "Theme",
+				shape: "Shape",
+				cornerRoundness: "Corner roundness",
+				language: "Language",
+				cameraInput: "Camera Input",
+				resize: "Resize",
+				advancedSettings: "Advanced Settings",
+				aboutCamlet: "About Camlet",
+				closeApp: "Close Camlet",
+				retryCamera: "Retry Camera",
+				resetAppearance: "Reset Appearance",
+				fitMode: "Fit Mode",
+				ringThickness: "Ring Thickness",
+				systemInfo: "System",
+				status: "Status",
+				activeDevice: "Active Device",
+				displayProtocol: "Display Protocol",
+				noDevices: "No devices",
+				themeOptions: {
+					mint: "Mint",
+					ocean: "Ocean",
+					ember: "Ember",
+					orchid: "Orchid",
+					grove: "Grove",
+					graphite: "Graphite",
+				},
+				shapeOptions: {
+					circle: "Circle",
+					roundedSquare: "Square",
+					diamond: "Diamond",
+					rectangle: "Rectangle",
+				},
+				fitModeOptions: {
+					cover: "Cover",
+					contain: "Contain",
+				},
+				languageOptions: {
+					system: "System default",
+					en: "English",
+					"pt-BR": "Português (Brasil)",
+					es: "Español",
+					fr: "Français",
+					de: "Deutsch",
+					it: "Italiano",
+					ja: "日本語",
+				},
+			},
+			selectedThemeId: "mint" as const,
+			selectedShape: "circle" as const,
+			selectedLanguage: "en" as const,
+			selectedFitMode: "cover" as const,
+			selectedRingThickness: 8,
+			selectedCornerRoundness: 24,
+			cameraOptions: [],
+			selectedCameraDeviceId: null,
+			cameraStatusLabel: "Camera preview active",
+			activeCameraLabel: "None",
+			displayProtocolLabel: "Wayland",
+		};
 
 		expect(Object.isFrozen(api)).toBe(true);
 
 		await api.getBootstrap();
 		await api.getSettings();
+		await api.getAboutInfo();
+		await api.openAboutWindow();
 		await api.setLanguage("ja");
 		await api.setSelectedCameraDeviceId("camera-1");
 		await api.updateOverlayAppearanceSettings({
@@ -39,64 +102,14 @@ describe("preload API contract", () => {
 			width: 280,
 			height: 280,
 		});
-		await api.showContextMenu({
-			labels: {
-				theme: "Theme",
-				shape: "Shape",
-				language: "Language",
-				cameraInput: "Camera Input",
-				resize: "Resize",
-				advancedSettings: "Advanced Settings",
-				closeApp: "Close Camlet",
-				retryCamera: "Retry Camera",
-				resetAppearance: "Reset Appearance",
-				fitMode: "Fit Mode",
-				ringThickness: "Ring Thickness",
-				systemInfo: "System",
-				status: "Status",
-				activeDevice: "Active Device",
-				displayProtocol: "Display Protocol",
-				noDevices: "No devices",
-				themeOptions: {
-					mint: "Mint",
-					coral: "Coral",
-					sky: "Sky",
-					graphite: "Graphite",
-				},
-				shapeOptions: {
-					circle: "Circle",
-					roundedSquare: "Rounded square",
-				},
-				fitModeOptions: {
-					cover: "Cover",
-					contain: "Contain",
-				},
-				languageOptions: {
-					system: "System default",
-					en: "English",
-					"pt-BR": "Português (Brasil)",
-					es: "Español",
-					fr: "Français",
-					de: "Deutsch",
-					it: "Italiano",
-					ja: "日本語",
-				},
-			},
-			selectedThemeId: "mint",
-			selectedShape: "circle",
-			selectedLanguage: "en",
-			selectedFitMode: "cover",
-			selectedRingThickness: 8,
-			cameraOptions: [],
-			selectedCameraDeviceId: null,
-			cameraStatusLabel: "Camera preview active",
-			activeCameraLabel: "None",
-			displayProtocolLabel: "Wayland",
-		});
+		await api.updateContextMenuState(contextMenuPayload);
+		await api.showContextMenu(contextMenuPayload);
 
 		expect(invoke.mock.calls).toEqual([
 			[ipcChannels.getBootstrap],
 			[ipcChannels.getSettings],
+			[ipcChannels.getAboutInfo],
+			[ipcChannels.openAboutWindow],
 			[ipcChannels.setLanguage, "ja"],
 			[ipcChannels.setSelectedCameraDeviceId, "camera-1"],
 			[ipcChannels.updateOverlayAppearanceSettings, { ringThickness: 12 }],
@@ -113,64 +126,39 @@ describe("preload API contract", () => {
 					height: 280,
 				},
 			],
-			[
-				ipcChannels.showContextMenu,
-				{
-					labels: {
-						theme: "Theme",
-						shape: "Shape",
-						language: "Language",
-						cameraInput: "Camera Input",
-						resize: "Resize",
-						advancedSettings: "Advanced Settings",
-						closeApp: "Close Camlet",
-						retryCamera: "Retry Camera",
-						resetAppearance: "Reset Appearance",
-						fitMode: "Fit Mode",
-						ringThickness: "Ring Thickness",
-						systemInfo: "System",
-						status: "Status",
-						activeDevice: "Active Device",
-						displayProtocol: "Display Protocol",
-						noDevices: "No devices",
-						themeOptions: {
-							mint: "Mint",
-							coral: "Coral",
-							sky: "Sky",
-							graphite: "Graphite",
-						},
-						shapeOptions: {
-							circle: "Circle",
-							roundedSquare: "Rounded square",
-						},
-						fitModeOptions: {
-							cover: "Cover",
-							contain: "Contain",
-						},
-						languageOptions: {
-							system: "System default",
-							en: "English",
-							"pt-BR": "Português (Brasil)",
-							es: "Español",
-							fr: "Français",
-							de: "Deutsch",
-							it: "Italiano",
-							ja: "日本語",
-						},
-					},
-					selectedThemeId: "mint",
-					selectedShape: "circle",
-					selectedLanguage: "en",
-					selectedFitMode: "cover",
-					selectedRingThickness: 8,
-					cameraOptions: [],
-					selectedCameraDeviceId: null,
-					cameraStatusLabel: "Camera preview active",
-					activeCameraLabel: "None",
-					displayProtocolLabel: "Wayland",
-				},
-			],
+			[ipcChannels.updateContextMenuState, contextMenuPayload],
+			[ipcChannels.showContextMenu, contextMenuPayload],
 		]);
+	});
+
+	it("subscribes and unsubscribes context menu request events through IPC", () => {
+		const listeners = new Map<string, (...args: unknown[]) => void>();
+		const mockIpcRenderer = {
+			invoke: vi.fn(async () => undefined),
+			on: vi.fn((channel: string, listener: (...args: unknown[]) => void) => {
+				listeners.set(channel, listener);
+				return mockIpcRenderer;
+			}),
+			removeListener: vi.fn(
+				(channel: string, listener: (...args: unknown[]) => void) => {
+					if (listeners.get(channel) === listener) {
+						listeners.delete(channel);
+					}
+
+					return mockIpcRenderer;
+				},
+			),
+		};
+		const api = createCamletApi(mockIpcRenderer);
+		const listener = vi.fn();
+
+		const unsubscribe = api.onContextMenuRequested(listener);
+		listeners.get(ipcChannels.contextMenuRequested)?.({});
+		unsubscribe();
+
+		expect(listener).toHaveBeenCalledTimes(1);
+		expect(mockIpcRenderer.on).toHaveBeenCalledTimes(1);
+		expect(mockIpcRenderer.removeListener).toHaveBeenCalledTimes(1);
 	});
 
 	it("subscribes and unsubscribes window state listeners through IPC", () => {

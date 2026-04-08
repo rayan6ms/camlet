@@ -1,16 +1,23 @@
 import {
 	useEffect,
 	useEffectEvent,
+	useId,
 	useRef,
 	useState,
 	useSyncExternalStore,
 } from "react";
-import { defaultOverlayAppearanceSettings } from "../../../shared/appearance.js";
+import {
+	defaultOverlayAppearanceSettings,
+	getRoundedSquareRadius,
+} from "../../../shared/appearance.js";
 import type {
 	AppBootstrap,
 	AppDisplayProtocol,
 } from "../../../shared/bootstrap.js";
-import type { CamletContextMenuAction } from "../../../shared/ipc.js";
+import type {
+	CamletContextMenuAction,
+	CamletContextMenuRequest,
+} from "../../../shared/ipc.js";
 import {
 	type AppLanguage,
 	resolveAppLanguage,
@@ -43,8 +50,9 @@ interface OverlayShellScreenProps {
 }
 
 interface ThemePreset {
-	id: "mint" | "coral" | "sky" | "graphite";
+	id: "mint" | "ocean" | "ember" | "orchid" | "grove" | "graphite";
 	ringColor: string;
+	ringAccentColor: string;
 }
 
 const startupHintTimeoutMs = 2600;
@@ -54,18 +62,32 @@ const themePresets: ThemePreset[] = [
 	{
 		id: "mint",
 		ringColor: "#7CE2C6",
+		ringAccentColor: "#C8FFF1",
 	},
 	{
-		id: "coral",
-		ringColor: "#FF8B73",
+		id: "ocean",
+		ringColor: "#4DA7FF",
+		ringAccentColor: "#77F1E1",
 	},
 	{
-		id: "sky",
-		ringColor: "#69B7FF",
+		id: "ember",
+		ringColor: "#FF6C4D",
+		ringAccentColor: "#FFB067",
+	},
+	{
+		id: "orchid",
+		ringColor: "#B78CFF",
+		ringAccentColor: "#F1A8FF",
+	},
+	{
+		id: "grove",
+		ringColor: "#57D97B",
+		ringAccentColor: "#B8FF9D",
 	},
 	{
 		id: "graphite",
-		ringColor: "#F4F7FB",
+		ringColor: "#F2F5F9",
+		ringAccentColor: "#93A1B8",
 	},
 ];
 
@@ -97,19 +119,266 @@ function getDisplayProtocolLabel(protocol: AppDisplayProtocol): string {
 	return t(`about.displayProtocols.${protocol}`);
 }
 
-function getThemeId(ringColor: string): ThemePreset["id"] | null {
+function getThemeId(
+	ringColor: string,
+	ringAccentColor: string,
+): ThemePreset["id"] | null {
 	return (
-		themePresets.find((theme) => theme.ringColor === ringColor.toUpperCase())
-			?.id ?? null
+		themePresets.find(
+			(theme) =>
+				theme.ringColor === ringColor.toUpperCase() &&
+				theme.ringAccentColor === ringAccentColor.toUpperCase(),
+		)?.id ?? null
 	);
-}
-
-function getLanguageOptions(): AppLanguage[] {
-	return [...selectableAppLanguages];
 }
 
 function getLanguageLabel(language: SupportedLanguage | AppLanguage) {
 	return t(`language.options.${language}`);
+}
+
+interface RingShapeDefinitionBase {
+	strokeWidth: number;
+}
+
+type RingShapeDefinition =
+	| (RingShapeDefinitionBase & {
+			type: "circle";
+			cx: number;
+			cy: number;
+			r: number;
+	  })
+	| (RingShapeDefinitionBase & {
+			type: "rect";
+			x: number;
+			y: number;
+			width: number;
+			height: number;
+			rx: number;
+	  })
+	| (RingShapeDefinitionBase & {
+			type: "polygon";
+			points: string;
+	  });
+
+function getRingShapeDefinition(
+	appearance: ReturnType<typeof getOverlayAppearanceSettings> & {
+		overlaySize: number;
+	},
+): RingShapeDefinition {
+	const { overlayShape, overlaySize, ringThickness, cornerRoundness } =
+		appearance;
+	const strokeInset = ringThickness / 2;
+
+	switch (overlayShape) {
+		case "circle":
+			return {
+				type: "circle",
+				cx: overlaySize / 2,
+				cy: overlaySize / 2,
+				r: overlaySize / 2 - strokeInset,
+				strokeWidth: ringThickness,
+			};
+		case "rounded-square":
+			return {
+				type: "rect",
+				x: strokeInset,
+				y: strokeInset,
+				width: overlaySize - ringThickness,
+				height: overlaySize - ringThickness,
+				rx: Math.max(
+					0,
+					getRoundedSquareRadius(overlaySize, cornerRoundness) - strokeInset,
+				),
+				strokeWidth: ringThickness,
+			};
+		case "rectangle": {
+			const inset = overlaySize * 0.16;
+			const width = Math.max(1, overlaySize - inset * 2 - ringThickness);
+			const height = Math.max(1, overlaySize - ringThickness);
+			return {
+				type: "rect",
+				x: inset + strokeInset,
+				y: strokeInset,
+				width,
+				height,
+				rx: Math.max(
+					0,
+					Math.min(
+						getRoundedSquareRadius(Math.min(width, height), cornerRoundness),
+						width / 2,
+						height / 2,
+					),
+				),
+				strokeWidth: ringThickness,
+			};
+		}
+		case "diamond":
+			return {
+				type: "polygon",
+				points: [
+					`${overlaySize / 2},${strokeInset}`,
+					`${overlaySize - strokeInset},${overlaySize / 2}`,
+					`${overlaySize / 2},${overlaySize - strokeInset}`,
+					`${strokeInset},${overlaySize / 2}`,
+				].join(" "),
+				strokeWidth: ringThickness,
+			};
+	}
+}
+
+function OverlayRingShape({
+	definition,
+	className,
+	stroke,
+}: {
+	className: string;
+	definition: RingShapeDefinition;
+	stroke?: string;
+}) {
+	switch (definition.type) {
+		case "circle":
+			return (
+				<circle
+					className={className}
+					cx={definition.cx}
+					cy={definition.cy}
+					r={definition.r}
+					stroke={stroke}
+					strokeWidth={definition.strokeWidth}
+				/>
+			);
+		case "rect":
+			return (
+				<rect
+					className={className}
+					height={definition.height}
+					rx={definition.rx}
+					stroke={stroke}
+					strokeWidth={definition.strokeWidth}
+					width={definition.width}
+					x={definition.x}
+					y={definition.y}
+				/>
+			);
+		case "polygon":
+			return (
+				<polygon
+					className={className}
+					points={definition.points}
+					stroke={stroke}
+					strokeWidth={definition.strokeWidth}
+				/>
+			);
+	}
+}
+
+function OverlayRingSvg({
+	appearance,
+}: {
+	appearance: ReturnType<typeof getOverlayAppearanceSettings> & {
+		overlaySize: number;
+	};
+}) {
+	const gradientId = useId().replace(/:/g, "");
+	const definition = getRingShapeDefinition(appearance);
+	const highlightStrokeWidth = Math.max(1, appearance.ringThickness * 0.16);
+
+	return (
+		<svg
+			aria-hidden="true"
+			className="camlet-surface__ring"
+			viewBox={`0 0 ${appearance.overlaySize} ${appearance.overlaySize}`}
+		>
+			<defs>
+				<linearGradient id={gradientId} x1="12%" x2="88%" y1="8%" y2="92%">
+					<stop offset="0%" stopColor={appearance.ringColor} />
+					<stop offset="100%" stopColor={appearance.ringAccentColor} />
+				</linearGradient>
+			</defs>
+			<OverlayRingShape
+				className="camlet-surface__ring-shape"
+				definition={definition}
+				stroke={`url(#${gradientId})`}
+			/>
+			<OverlayRingShape
+				className="camlet-surface__ring-highlight"
+				definition={{ ...definition, strokeWidth: highlightStrokeWidth }}
+			/>
+		</svg>
+	);
+}
+
+function createContextMenuRequest(input: {
+	activeCameraLabel: string | null;
+	activeThemeId: ThemePreset["id"] | null;
+	cameraOptions: Array<{ deviceId: string; label: string }>;
+	cameraStatus: ReturnType<typeof useCameraPreview>["state"]["status"];
+	cornerRoundness: number;
+	displayProtocol: AppDisplayProtocol;
+	languageOptions: readonly AppLanguage[];
+	language: AppLanguage;
+	overlayShape: CamletSettings["overlayShape"];
+	previewFitMode: CamletSettings["previewFitMode"];
+	selectedCameraDeviceId: string | null;
+	ringThickness: number;
+}): CamletContextMenuRequest {
+	return {
+		labels: {
+			theme: t("appearance.labels.theme"),
+			shape: t("appearance.labels.shape"),
+			cornerRoundness: t("appearance.labels.cornerRoundness"),
+			language: t("language.label"),
+			cameraInput: t("camera.labels.device"),
+			resize: t("overlay.resizeAction"),
+			advancedSettings: t("advanced.title"),
+			aboutCamlet: t("about.windowTitle"),
+			closeApp: t("app.close"),
+			retryCamera: t("camera.actions.retry"),
+			resetAppearance: t("settings.actions.resetAppearance"),
+			fitMode: t("appearance.labels.fitMode"),
+			ringThickness: t("appearance.labels.ringThickness"),
+			systemInfo: t("sections.system"),
+			status: t("camera.labels.permission"),
+			activeDevice: t("camera.labels.activeDevice"),
+			displayProtocol: t("about.labels.displayProtocol"),
+			noDevices: t("camera.labels.noDevices"),
+			themeOptions: {
+				mint: t("appearance.themes.mint"),
+				ocean: t("appearance.themes.ocean"),
+				ember: t("appearance.themes.ember"),
+				orchid: t("appearance.themes.orchid"),
+				grove: t("appearance.themes.grove"),
+				graphite: t("appearance.themes.graphite"),
+			},
+			shapeOptions: {
+				circle: t("appearance.shapes.circle"),
+				roundedSquare: t("appearance.shapes.roundedSquare"),
+				diamond: t("appearance.shapes.diamond"),
+				rectangle: t("appearance.shapes.rectangle"),
+			},
+			fitModeOptions: {
+				cover: t("appearance.fitModes.cover"),
+				contain: t("appearance.fitModes.contain"),
+			},
+			languageOptions: Object.fromEntries(
+				input.languageOptions.map((language) => [
+					language,
+					getLanguageLabel(language),
+				]),
+			) as Record<AppLanguage, string>,
+		},
+		selectedThemeId: input.activeThemeId,
+		selectedShape: input.overlayShape,
+		selectedLanguage: input.language,
+		selectedFitMode: input.previewFitMode,
+		selectedRingThickness: input.ringThickness,
+		selectedCornerRoundness: input.cornerRoundness,
+		cameraOptions: input.cameraOptions,
+		selectedCameraDeviceId: input.selectedCameraDeviceId,
+		cameraStatusLabel: t(`camera.status.${input.cameraStatus}`),
+		activeCameraLabel: input.activeCameraLabel ?? t("camera.labels.none"),
+		displayProtocolLabel: getDisplayProtocolLabel(input.displayProtocol),
+	};
 }
 
 export function OverlayShellScreen({ bootstrap }: OverlayShellScreenProps) {
@@ -124,9 +393,6 @@ export function OverlayShellScreen({ bootstrap }: OverlayShellScreenProps) {
 	const [showStartupHint, setShowStartupHint] = useState(true);
 	const appearanceRequestIdRef = useRef(0);
 	const languageRequestIdRef = useRef(0);
-	const dragSessionRef = useRef<{
-		pointerId: number;
-	} | null>(null);
 	const resizeSessionRef = useRef<{
 		handle: ResizeHandle;
 		pointerId: number;
@@ -146,8 +412,11 @@ export function OverlayShellScreen({ bootstrap }: OverlayShellScreenProps) {
 		...appearance,
 		overlaySize: surfaceSize,
 	});
-	const activeThemeId = getThemeId(settings.ringColor);
-	const languageOptions = getLanguageOptions();
+	const activeThemeId = getThemeId(
+		settings.ringColor,
+		settings.ringAccentColor,
+	);
+	const languageOptions = selectableAppLanguages;
 
 	const handleContextMenuAction = useEffectEvent(
 		(action: CamletContextMenuAction) => {
@@ -160,6 +429,7 @@ export function OverlayShellScreen({ bootstrap }: OverlayShellScreenProps) {
 					if (nextTheme !== undefined) {
 						void updateAppearance({
 							ringColor: nextTheme.ringColor,
+							ringAccentColor: nextTheme.ringAccentColor,
 						});
 					}
 					return;
@@ -167,6 +437,11 @@ export function OverlayShellScreen({ bootstrap }: OverlayShellScreenProps) {
 				case "set-shape":
 					void updateAppearance({
 						overlayShape: action.shape,
+					});
+					return;
+				case "set-corner-roundness":
+					void updateAppearance({
+						cornerRoundness: action.cornerRoundness,
 					});
 					return;
 				case "set-language":
@@ -193,6 +468,9 @@ export function OverlayShellScreen({ bootstrap }: OverlayShellScreenProps) {
 					return;
 				case "enter-resize-mode":
 					setResizeMode(true);
+					return;
+				case "open-about-window":
+					void window.camlet.openAboutWindow();
 					return;
 				case "close-app":
 					return;
@@ -323,106 +601,62 @@ export function OverlayShellScreen({ bootstrap }: OverlayShellScreenProps) {
 		}
 	}
 
-	const openContextMenu = () => {
+	const openContextMenu = useEffectEvent(() => {
 		setShowStartupHint(false);
-
-		void window.camlet.showContextMenu({
-			labels: {
-				theme: t("appearance.labels.theme"),
-				shape: t("appearance.labels.shape"),
-				language: t("language.label"),
-				cameraInput: t("camera.labels.device"),
-				resize: t("overlay.resizeAction"),
-				advancedSettings: t("advanced.title"),
-				closeApp: t("app.close"),
-				retryCamera: t("camera.actions.retry"),
-				resetAppearance: t("settings.actions.resetAppearance"),
-				fitMode: t("appearance.labels.fitMode"),
-				ringThickness: t("appearance.labels.ringThickness"),
-				systemInfo: t("sections.system"),
-				status: t("camera.labels.permission"),
-				activeDevice: t("camera.labels.activeDevice"),
-				displayProtocol: t("about.labels.displayProtocol"),
-				noDevices: t("camera.labels.noDevices"),
-				themeOptions: {
-					mint: t("appearance.themes.mint"),
-					coral: t("appearance.themes.coral"),
-					sky: t("appearance.themes.sky"),
-					graphite: t("appearance.themes.graphite"),
-				},
-				shapeOptions: {
-					circle: t("appearance.shapes.circle"),
-					roundedSquare: t("appearance.shapes.roundedSquare"),
-				},
-				fitModeOptions: {
-					cover: t("appearance.fitModes.cover"),
-					contain: t("appearance.fitModes.contain"),
-				},
-				languageOptions: Object.fromEntries(
-					languageOptions.map((language) => [
-						language,
-						getLanguageLabel(language),
-					]),
-				) as Record<AppLanguage, string>,
-			},
-			selectedThemeId: activeThemeId,
-			selectedShape: settings.overlayShape,
-			selectedLanguage: settings.language,
-			selectedFitMode: settings.previewFitMode,
-			selectedRingThickness: settings.ringThickness,
-			cameraOptions: state.devices.map((device) => ({
-				deviceId: device.deviceId,
-				label: device.label,
-			})),
-			selectedCameraDeviceId: state.selectedDeviceId,
-			cameraStatusLabel: t(`camera.status.${state.status}`),
-			activeCameraLabel: state.activeDeviceLabel ?? t("camera.labels.none"),
-			displayProtocolLabel: getDisplayProtocolLabel(
-				bootstrap.app.displayProtocol,
-			),
-		});
-	};
-
-	const endWindowDrag = useEffectEvent((pointerId: number) => {
-		if (dragSessionRef.current?.pointerId !== pointerId) {
-			return;
-		}
-
-		dragSessionRef.current = null;
-		void window.camlet.endWindowDrag();
+		void window.camlet.showContextMenu(
+			createContextMenuRequest({
+				activeCameraLabel: state.activeDeviceLabel,
+				activeThemeId,
+				cameraOptions: state.devices.map((device) => ({
+					deviceId: device.deviceId,
+					label: device.label,
+				})),
+				cameraStatus: state.status,
+				cornerRoundness: settings.cornerRoundness,
+				displayProtocol: bootstrap.app.displayProtocol,
+				languageOptions,
+				language: settings.language,
+				overlayShape: settings.overlayShape,
+				previewFitMode: settings.previewFitMode,
+				selectedCameraDeviceId: state.selectedDeviceId,
+				ringThickness: settings.ringThickness,
+			}),
+		);
 	});
 
 	useEffect(() => {
-		const handlePointerMove = (event: PointerEvent) => {
-			if (dragSessionRef.current?.pointerId !== event.pointerId) {
-				return;
-			}
-
-			if ((event.buttons & 1) !== 1) {
-				endWindowDrag(event.pointerId);
-				return;
-			}
-
-			void window.camlet.updateWindowDrag({
-				screenX: Math.round(event.screenX),
-				screenY: Math.round(event.screenY),
-			});
-		};
-
-		const handlePointerEnd = (event: PointerEvent) => {
-			endWindowDrag(event.pointerId);
-		};
-
-		window.addEventListener("pointermove", handlePointerMove);
-		window.addEventListener("pointerup", handlePointerEnd);
-		window.addEventListener("pointercancel", handlePointerEnd);
-
-		return () => {
-			window.removeEventListener("pointermove", handlePointerMove);
-			window.removeEventListener("pointerup", handlePointerEnd);
-			window.removeEventListener("pointercancel", handlePointerEnd);
-		};
-	}, []);
+		void window.camlet.updateContextMenuState(
+			createContextMenuRequest({
+				activeCameraLabel: state.activeDeviceLabel,
+				activeThemeId,
+				cameraOptions: state.devices.map((device) => ({
+					deviceId: device.deviceId,
+					label: device.label,
+				})),
+				cameraStatus: state.status,
+				cornerRoundness: settings.cornerRoundness,
+				displayProtocol: bootstrap.app.displayProtocol,
+				languageOptions,
+				language: settings.language,
+				overlayShape: settings.overlayShape,
+				previewFitMode: settings.previewFitMode,
+				selectedCameraDeviceId: state.selectedDeviceId,
+				ringThickness: settings.ringThickness,
+			}),
+		);
+	}, [
+		activeThemeId,
+		bootstrap.app.displayProtocol,
+		settings.cornerRoundness,
+		settings.language,
+		settings.overlayShape,
+		settings.previewFitMode,
+		settings.ringThickness,
+		state.activeDeviceLabel,
+		state.devices,
+		state.selectedDeviceId,
+		state.status,
+	]);
 
 	return (
 		<div
@@ -440,25 +674,7 @@ export function OverlayShellScreen({ bootstrap }: OverlayShellScreenProps) {
 				onDoubleClick={(event) => {
 					event.preventDefault();
 				}}
-				onPointerDown={(event) => {
-					if (
-						resizeMode ||
-						event.button !== 0 ||
-						isInteractiveTarget(event.target)
-					) {
-						return;
-					}
-
-					event.preventDefault();
-					setShowStartupHint(false);
-					dragSessionRef.current = {
-						pointerId: event.pointerId,
-					};
-					void window.camlet.startWindowDrag(toScreenPoint(event));
-				}}
 				onPointerUp={(event) => {
-					endWindowDrag(event.pointerId);
-
 					if (resizeMode && !isInteractiveTarget(event.target)) {
 						setResizeMode(false);
 					}
@@ -481,7 +697,12 @@ export function OverlayShellScreen({ bootstrap }: OverlayShellScreenProps) {
 						ref={videoRef}
 					/>
 				</div>
-				<div className="camlet-surface__ring" />
+				<OverlayRingSvg
+					appearance={{
+						...appearance,
+						overlaySize: surfaceSize,
+					}}
+				/>
 
 				{showStartupHint && state.status === "preview" ? (
 					<div className="camlet-hint" role="status">
@@ -493,9 +714,6 @@ export function OverlayShellScreen({ bootstrap }: OverlayShellScreenProps) {
 					<div className="camlet-status-card">
 						<p className="camlet-status-card__title">
 							{t(`camera.status.${state.status}`)}
-						</p>
-						<p className="camlet-status-card__copy">
-							{state.errorMessage ?? t(`camera.message.${state.status}`)}
 						</p>
 						{state.status !== "loading" ? (
 							<button
@@ -515,7 +733,7 @@ export function OverlayShellScreen({ bootstrap }: OverlayShellScreenProps) {
 					<>
 						<div className="camlet-resize-banner">
 							<p className="camlet-resize-banner__copy">
-								{t("overlay.resizeHint")}
+								{t("overlay.resizeAction")}
 							</p>
 							<button
 								className="camlet-button camlet-button--quiet"

@@ -1,3 +1,4 @@
+import type { AboutInfo } from "../shared/about.js";
 import type {
 	CamletApi,
 	CamletContextMenuAction,
@@ -22,7 +23,11 @@ const channels = {
 	endWindowDrag: "window:end-drag",
 	setWindowResizable: "window:set-resizable",
 	setWindowState: "window:set-state",
+	getAboutInfo: "app:get-about-info",
+	openAboutWindow: "app:open-about-window",
+	updateContextMenuState: "app:update-context-menu-state",
 	showContextMenu: "app:show-context-menu",
+	contextMenuRequested: "app:context-menu-requested",
 	contextMenuAction: "app:context-menu-action",
 	windowStateChanged: "window:state-changed",
 } as const;
@@ -45,8 +50,24 @@ const camletApi: CamletApi = Object.freeze({
 		ipcRenderer.invoke(channels.setWindowResizable, resizable),
 	setWindowState: (windowState: WindowState) =>
 		ipcRenderer.invoke(channels.setWindowState, windowState),
+	getAboutInfo: () =>
+		ipcRenderer.invoke(channels.getAboutInfo) as Promise<AboutInfo>,
+	openAboutWindow: () => ipcRenderer.invoke(channels.openAboutWindow),
+	updateContextMenuState: (request: CamletContextMenuRequest) =>
+		ipcRenderer.invoke(channels.updateContextMenuState, request),
 	showContextMenu: (request: CamletContextMenuRequest) =>
 		ipcRenderer.invoke(channels.showContextMenu, request),
+	onContextMenuRequested: (listener: () => void) => {
+		const subscription = () => {
+			listener();
+		};
+
+		ipcRenderer.on(channels.contextMenuRequested, subscription);
+
+		return () => {
+			ipcRenderer.removeListener(channels.contextMenuRequested, subscription);
+		};
+	},
 	onContextMenuAction: (
 		listener: (action: CamletContextMenuAction) => void,
 	) => {

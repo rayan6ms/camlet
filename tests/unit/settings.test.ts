@@ -23,8 +23,10 @@ describe("Camlet settings schema", () => {
 			selectedCameraDevice: "legacy-camera-id",
 			shape: "ring",
 			color: "#FF5500",
+			accentColor: "#FFD080",
 			size: 320,
 			borderWidth: 14,
+			radius: 18,
 			position: {
 				x: 160,
 				y: 72,
@@ -37,8 +39,10 @@ describe("Camlet settings schema", () => {
 		expect(mergedSettings.selectedCameraDeviceId).toBe("legacy-camera-id");
 		expect(mergedSettings.overlayShape).toBe("circle");
 		expect(mergedSettings.ringColor).toBe("#FF5500");
+		expect(mergedSettings.ringAccentColor).toBe("#FFD080");
 		expect(mergedSettings.overlaySize).toBe(320);
 		expect(mergedSettings.ringThickness).toBe(14);
+		expect(mergedSettings.cornerRoundness).toBe(18);
 		expect(mergedSettings.window).toEqual({
 			x: 160,
 			y: 72,
@@ -50,14 +54,22 @@ describe("Camlet settings schema", () => {
 	it("falls back to defaults when persisted appearance values are invalid", () => {
 		const mergedSettings = mergeCamletSettings({
 			ringColor: "green",
+			ringAccentColor: "pink",
 			ringThickness: 100,
+			cornerRoundness: 400,
 			overlaySize: 10,
 			previewFitMode: "stretch",
 		});
 
 		expect(mergedSettings.ringColor).toBe(defaultCamletSettings.ringColor);
+		expect(mergedSettings.ringAccentColor).toBe(
+			defaultCamletSettings.ringAccentColor,
+		);
 		expect(mergedSettings.ringThickness).toBe(
 			defaultCamletSettings.ringThickness,
+		);
+		expect(mergedSettings.cornerRoundness).toBe(
+			defaultCamletSettings.cornerRoundness,
 		);
 		expect(mergedSettings.overlaySize).toBe(defaultCamletSettings.overlaySize);
 		expect(mergedSettings.previewFitMode).toBe(
@@ -68,6 +80,7 @@ describe("Camlet settings schema", () => {
 	it("applies typed patches without dropping nested window state", () => {
 		const nextSettings = applyCamletSettingsPatch(defaultCamletSettings, {
 			overlaySize: 320,
+			cornerRoundness: 42,
 			previewFitMode: "contain",
 			window: {
 				height: 288,
@@ -75,6 +88,7 @@ describe("Camlet settings schema", () => {
 		});
 
 		expect(nextSettings.overlaySize).toBe(320);
+		expect(nextSettings.cornerRoundness).toBe(42);
 		expect(nextSettings.previewFitMode).toBe("contain");
 		expect(nextSettings.window).toEqual({
 			...defaultCamletSettings.window,

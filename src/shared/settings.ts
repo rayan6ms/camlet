@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+	cornerRoundnessSchema,
 	defaultOverlayAppearanceSettings,
 	type OverlayAppearanceSettings,
 	type OverlayAppearanceSettingsPatch,
@@ -8,6 +9,7 @@ import {
 	overlayShapeSchema,
 	overlaySizeSchema,
 	previewFitModeSchema,
+	ringAccentColorSchema,
 	ringColorSchema,
 	ringThicknessSchema,
 } from "./appearance.js";
@@ -28,7 +30,9 @@ export const camletSettingsSchema = z.object({
 	overlayShape: overlayShapeSchema,
 	overlaySize: overlaySizeSchema,
 	ringColor: ringColorSchema,
+	ringAccentColor: ringAccentColorSchema,
 	ringThickness: ringThicknessSchema,
+	cornerRoundness: cornerRoundnessSchema,
 	previewFitMode: previewFitModeSchema,
 	window: z.object({
 		x: z.number().int(),
@@ -42,7 +46,9 @@ export const overlayAppearanceSettingsKeys = [
 	"overlayShape",
 	"overlaySize",
 	"ringColor",
+	"ringAccentColor",
 	"ringThickness",
+	"cornerRoundness",
 	"previewFitMode",
 ] as const;
 
@@ -81,7 +87,9 @@ export function getOverlayAppearanceSettings(
 		overlayShape: settings.overlayShape,
 		overlaySize: settings.overlaySize,
 		ringColor: settings.ringColor,
+		ringAccentColor: settings.ringAccentColor,
 		ringThickness: settings.ringThickness,
+		cornerRoundness: settings.cornerRoundness,
 		previewFitMode: settings.previewFitMode,
 	};
 }
@@ -109,10 +117,20 @@ export function mergeOverlayAppearanceSettings(
 			value.ringColor ?? value.color,
 			defaultOverlayAppearanceSettings.ringColor,
 		),
+		ringAccentColor: parseWithFallback(
+			ringAccentColorSchema,
+			value.ringAccentColor ?? value.accentColor,
+			defaultOverlayAppearanceSettings.ringAccentColor,
+		),
 		ringThickness: parseWithFallback(
 			ringThicknessSchema,
 			value.ringThickness ?? value.borderWidth,
 			defaultOverlayAppearanceSettings.ringThickness,
+		),
+		cornerRoundness: parseWithFallback(
+			cornerRoundnessSchema,
+			value.cornerRoundness ?? value.radius,
+			defaultOverlayAppearanceSettings.cornerRoundness,
 		),
 		previewFitMode: parseWithFallback(
 			previewFitModeSchema,
@@ -185,8 +203,14 @@ export function applyOverlayAppearanceSettingsPatch(
 		...(nextPatch.ringColor !== undefined
 			? { ringColor: nextPatch.ringColor }
 			: {}),
+		...(nextPatch.ringAccentColor !== undefined
+			? { ringAccentColor: nextPatch.ringAccentColor }
+			: {}),
 		...(nextPatch.ringThickness !== undefined
 			? { ringThickness: nextPatch.ringThickness }
+			: {}),
+		...(nextPatch.cornerRoundness !== undefined
+			? { cornerRoundness: nextPatch.cornerRoundness }
 			: {}),
 		...(nextPatch.previewFitMode !== undefined
 			? { previewFitMode: nextPatch.previewFitMode }

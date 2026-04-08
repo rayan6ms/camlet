@@ -1,4 +1,5 @@
 import type { IpcRendererEvent } from "electron";
+import type { AboutInfo } from "../shared/about.js";
 import type {
 	AppBootstrap,
 	CamletApi,
@@ -50,8 +51,26 @@ export function createCamletApi(ipcRenderer: IpcRendererLike): CamletApi {
 			invoke<void>(ipcChannels.setWindowResizable, resizable),
 		setWindowState: (windowState: WindowState) =>
 			invoke<WindowState>(ipcChannels.setWindowState, windowState),
+		getAboutInfo: () => invoke<AboutInfo>(ipcChannels.getAboutInfo),
+		openAboutWindow: () => invoke<void>(ipcChannels.openAboutWindow),
+		updateContextMenuState: (request: CamletContextMenuRequest) =>
+			invoke<void>(ipcChannels.updateContextMenuState, request),
 		showContextMenu: (request: CamletContextMenuRequest) =>
 			invoke<void>(ipcChannels.showContextMenu, request),
+		onContextMenuRequested: (listener: () => void) => {
+			const subscription = () => {
+				listener();
+			};
+
+			ipcRenderer.on(ipcChannels.contextMenuRequested, subscription);
+
+			return () => {
+				ipcRenderer.removeListener(
+					ipcChannels.contextMenuRequested,
+					subscription,
+				);
+			};
+		},
 		onContextMenuAction: (
 			listener: (action: CamletContextMenuAction) => void,
 		) => {

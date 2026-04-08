@@ -175,7 +175,11 @@ export function bindMainWindowState(
 
 	window.on("move", syncWindowState);
 	window.on("resize", () => {
-		applyMainWindowShape(window, settingsStore.getSettings().overlayShape);
+		const settings = settingsStore.getSettings();
+		applyMainWindowShape(window, {
+			overlayShape: settings.overlayShape,
+			cornerRoundness: settings.cornerRoundness,
+		});
 		syncWindowState();
 	});
 	window.on("close", () => {

@@ -52,6 +52,84 @@ textarea {
 	backdrop-filter: blur(18px);
 }
 
+.about-screen {
+	display: grid;
+	min-height: 100vh;
+	padding: 24px;
+	align-items: start;
+	background: #0b0f14;
+}
+
+.about-screen__content {
+	display: grid;
+	gap: 18px;
+	width: min(560px, 100%);
+	margin: 0 auto;
+}
+
+.about-screen__title {
+	margin: 0;
+	font-size: 1.9rem;
+	line-height: 1.05;
+}
+
+.about-screen__description {
+	margin: 0;
+	max-width: 52ch;
+	font-size: 0.96rem;
+	line-height: 1.6;
+	color: rgba(244, 247, 251, 0.78);
+}
+
+.about-screen__avatar {
+	width: 88px;
+	height: 88px;
+	border-radius: 20px;
+	object-fit: cover;
+}
+
+.about-screen__links {
+	display: grid;
+	gap: 10px;
+}
+
+.about-screen__links a {
+	width: fit-content;
+	color: #9be7d4;
+	text-decoration: none;
+}
+
+.about-screen__links a:hover {
+	text-decoration: underline;
+}
+
+.about-screen__meta {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	gap: 14px 18px;
+	margin: 0;
+	padding-top: 6px;
+}
+
+.about-screen__meta div {
+	display: grid;
+	gap: 4px;
+}
+
+.about-screen__meta dt {
+	margin: 0;
+	font-size: 0.72rem;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: rgba(244, 247, 251, 0.54);
+}
+
+.about-screen__meta dd {
+	margin: 0;
+	font-size: 0.95rem;
+	color: rgba(244, 247, 251, 0.92);
+}
+
 .startup-screen__eyebrow {
 	margin: 0;
 	font-size: 0.72rem;
@@ -103,21 +181,28 @@ textarea {
 .camlet-surface {
 	--camlet-overlay-size: 224px;
 	--camlet-ring-color: #7ce2c6;
+	--camlet-ring-accent-color: #c8fff1;
+	--camlet-ring-gradient: linear-gradient(145deg, #7ce2c6, #c8fff1);
 	--camlet-ring-glow: rgba(124, 226, 198, 0.32);
 	--camlet-ring-thickness: 8px;
 	--camlet-preview-fit: cover;
 	--camlet-overlay-radius: 999px;
 	--camlet-overlay-clip-path: circle(50% at 50% 50%);
 	--camlet-inner-clip-path: circle(50% at 50% 50%);
+	--camlet-overlay-fill: linear-gradient(
+		180deg,
+		rgba(6, 10, 16, 0.94),
+		rgba(6, 10, 16, 0.82)
+	);
 	position: relative;
 	display: grid;
 	place-items: center;
 	overflow: hidden;
 	border-radius: var(--camlet-overlay-radius);
 	clip-path: var(--camlet-overlay-clip-path);
-	background: transparent;
+	background: var(--camlet-overlay-fill);
 	cursor: grab;
-	-webkit-app-region: no-drag;
+	-webkit-app-region: drag;
 	contain: paint;
 	isolation: isolate;
 	touch-action: none;
@@ -142,7 +227,13 @@ textarea {
 		calc(var(--camlet-overlay-radius) - var(--camlet-ring-thickness))
 	);
 	clip-path: var(--camlet-inner-clip-path);
-	background: rgba(5, 10, 16, 0.86);
+	background:
+		radial-gradient(
+			circle at 20% 20%,
+			var(--camlet-surface-tint),
+			transparent 38%
+		),
+		rgba(5, 10, 16, 0.86);
 	contain: paint;
 }
 
@@ -160,12 +251,28 @@ textarea {
 .camlet-surface__ring {
 	position: absolute;
 	inset: 0;
-	border: var(--camlet-ring-thickness) solid var(--camlet-ring-color);
-	border-radius: inherit;
-	box-shadow:
-		inset 0 0 0 1px rgba(255, 255, 255, 0.16),
-		0 0 12px var(--camlet-ring-glow);
+	width: 100%;
+	height: 100%;
 	pointer-events: none;
+	filter: drop-shadow(0 0 18px var(--camlet-ring-glow));
+	overflow: visible;
+}
+
+.camlet-surface__ring-shape {
+	fill: none;
+	stroke-linejoin: round;
+	stroke-linecap: round;
+	vector-effect: non-scaling-stroke;
+	shape-rendering: geometricPrecision;
+}
+
+.camlet-surface__ring-highlight {
+	fill: none;
+	stroke: rgba(255, 255, 255, 0.2);
+	stroke-linejoin: round;
+	stroke-linecap: round;
+	vector-effect: non-scaling-stroke;
+	shape-rendering: geometricPrecision;
 }
 
 .camlet-hint,

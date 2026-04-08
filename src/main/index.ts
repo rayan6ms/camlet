@@ -9,6 +9,7 @@ import {
 	validateRendererUrl,
 } from "./security.js";
 import { SettingsStoreService } from "./services/settings-store.js";
+import { createAboutWindow } from "./windows/create-about-window.js";
 import { createMainWindow } from "./windows/create-main-window.js";
 import {
 	bindMainWindowState,
@@ -33,6 +34,33 @@ const appVersion =
 const appWithVersionSetter = app as typeof app & {
 	setVersion?: (version: string) => void;
 };
+const isLinux = process.platform === "linux";
+
+function shouldPreferX11Backend() {
+	if (!isLinux) {
+		return false;
+	}
+
+	if (process.env.CAMLET_PREFER_WAYLAND === "1") {
+		return false;
+	}
+
+	if (app.commandLine.hasSwitch("ozone-platform")) {
+		return false;
+	}
+
+	return Boolean(process.env.DISPLAY?.trim());
+}
+
+function configureLinuxWindowingBackend() {
+	if (!shouldPreferX11Backend()) {
+		return;
+	}
+
+	app.commandLine.appendSwitch("ozone-platform", "x11");
+}
+
+configureLinuxWindowingBackend();
 
 async function openMainWindow(
 	settingsStore: SettingsStoreService,
@@ -42,7 +70,10 @@ async function openMainWindow(
 	const windowState = getSafeMainWindowState(settingsStore);
 	settingsStore.setWindowState(windowState);
 	const window = await createMainWindow({
-		overlayShape: settings.overlayShape,
+		appearance: {
+			overlayShape: settings.overlayShape,
+			cornerRoundness: settings.cornerRoundness,
+		},
 		preloadPath,
 		windowState,
 		...rendererPolicy,
@@ -67,7 +98,26 @@ app
 		configureSessionSecurity(session.defaultSession, rendererPolicy);
 
 		const settingsStore = new SettingsStoreService();
-		registerAppIpc(settingsStore);
+		let aboutWindow: BrowserWindow | null = null;
+		const openAboutWindow = async () => {
+			if (aboutWindow !== null && !aboutWindow.isDestroyed()) {
+				aboutWindow.show();
+				aboutWindow.focus();
+				return;
+			}
+
+			aboutWindow = await createAboutWindow({
+				preloadPath,
+				...rendererPolicy,
+			});
+			aboutWindow.on("closed", () => {
+				aboutWindow = null;
+			});
+		};
+
+		registerAppIpc(settingsStore, {
+			openAboutWindow,
+		});
 		await openMainWindow(settingsStore, rendererPolicy);
 
 		app.on("activate", async () => {

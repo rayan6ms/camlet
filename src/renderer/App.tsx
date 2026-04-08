@@ -1,4 +1,5 @@
 import type { AppBootstrap } from "../shared/bootstrap.js";
+import { AboutScreen } from "./components/AboutScreen.js";
 import { AppShell } from "./components/AppShell.js";
 import { StartupErrorScreen } from "./components/StartupErrorScreen.js";
 import { OverlayShellScreen } from "./features/overlay-shell/OverlayShellScreen.js";
@@ -10,12 +11,18 @@ interface AppProps {
 }
 
 export function App({ bootstrap, startupError }: AppProps) {
+	const isAboutRoute = window.location.hash === "#about";
+
 	return (
 		<AppShell>
 			{startupError !== null ? (
 				<StartupErrorScreen error={startupError} />
 			) : bootstrap !== null ? (
-				<OverlayShellScreen bootstrap={bootstrap} />
+				isAboutRoute ? (
+					<AboutScreen bootstrap={bootstrap} />
+				) : (
+					<OverlayShellScreen bootstrap={bootstrap} />
+				)
 			) : null}
 		</AppShell>
 	);

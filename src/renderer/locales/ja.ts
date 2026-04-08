@@ -43,8 +43,11 @@ export const jaLocale: RendererLocale = {
 		},
 	},
 	about: {
+		windowTitle: "Camlet について",
 		description:
 			"ベータ候補やパッケージ版を検証するときは、このビルド情報を使用してください。",
+		licenseLabel: "ライセンス",
+		readmeTitle: "README の概要",
 		labels: {
 			appName: "アプリ",
 			version: "バージョン",
@@ -152,6 +155,7 @@ export const jaLocale: RendererLocale = {
 		labels: {
 			theme: "テーマ",
 			shape: "形状",
+			cornerRoundness: "角の丸み",
 			fitMode: "表示モード",
 			ringColor: "リングカラー",
 			ringThickness: "リングの太さ",
@@ -159,13 +163,17 @@ export const jaLocale: RendererLocale = {
 		},
 		themes: {
 			mint: "ミント",
-			coral: "コーラル",
-			sky: "スカイ",
+			ocean: "オーシャン",
+			ember: "エンバー",
+			orchid: "オーキッド",
+			grove: "グローブ",
 			graphite: "グラファイト",
 		},
 		shapes: {
 			circle: "円",
-			roundedSquare: "角丸四角形",
+			roundedSquare: "四角形",
+			diamond: "ダイヤ",
+			rectangle: "長方形",
 		},
 		fitModes: {
 			cover: "カバー",

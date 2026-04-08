@@ -45,8 +45,11 @@ export const itLocale: RendererLocale = {
 		},
 	},
 	about: {
+		windowTitle: "Informazioni su Camlet",
 		description:
 			"Usa queste informazioni di build quando convalidi candidate beta o release pacchettizzate.",
+		licenseLabel: "Licenza",
+		readmeTitle: "Ambito README",
 		labels: {
 			appName: "App",
 			version: "Versione",
@@ -155,6 +158,7 @@ export const itLocale: RendererLocale = {
 		labels: {
 			theme: "Tema",
 			shape: "Forma",
+			cornerRoundness: "Arrotondamento angoli",
 			fitMode: "Modalità adattamento",
 			ringColor: "Colore anello",
 			ringThickness: "Spessore anello",
@@ -162,13 +166,17 @@ export const itLocale: RendererLocale = {
 		},
 		themes: {
 			mint: "Menta",
-			coral: "Corallo",
-			sky: "Cielo",
+			ocean: "Oceano",
+			ember: "Brace",
+			orchid: "Orchidea",
+			grove: "Bosco",
 			graphite: "Grafite",
 		},
 		shapes: {
 			circle: "Cerchio",
-			roundedSquare: "Quadrato arrotondato",
+			roundedSquare: "Quadrato",
+			diamond: "Diamante",
+			rectangle: "Rettangolo",
 		},
 		fitModes: {
 			cover: "Copri",

@@ -45,8 +45,11 @@ export const esLocale: RendererLocale = {
 		},
 	},
 	about: {
+		windowTitle: "Acerca de Camlet",
 		description:
 			"Usa esta información de compilación al validar versiones beta o lanzamientos empaquetados.",
+		licenseLabel: "Licencia",
+		readmeTitle: "Resumen del README",
 		labels: {
 			appName: "Aplicación",
 			version: "Versión",
@@ -156,6 +159,7 @@ export const esLocale: RendererLocale = {
 		labels: {
 			theme: "Tema",
 			shape: "Forma",
+			cornerRoundness: "Redondeo",
 			fitMode: "Modo de ajuste",
 			ringColor: "Color del anillo",
 			ringThickness: "Grosor del anillo",
@@ -163,13 +167,17 @@ export const esLocale: RendererLocale = {
 		},
 		themes: {
 			mint: "Menta",
-			coral: "Coral",
-			sky: "Cielo",
+			ocean: "Océano",
+			ember: "Ascua",
+			orchid: "Orquídea",
+			grove: "Bosque",
 			graphite: "Grafito",
 		},
 		shapes: {
 			circle: "Círculo",
-			roundedSquare: "Cuadrado redondeado",
+			roundedSquare: "Cuadrado",
+			diamond: "Diamante",
+			rectangle: "Rectángulo",
 		},
 		fitModes: {
 			cover: "Cubrir",
