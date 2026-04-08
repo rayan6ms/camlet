@@ -1,0 +1,202 @@
+import { z } from "zod";
+import {
+	defaultOverlayAppearanceSettings,
+	type OverlayAppearanceSettings,
+	type OverlayAppearanceSettingsPatch,
+	overlayAppearanceSettingsPatchSchema,
+	overlayAppearanceSettingsSchema,
+	overlayShapeSchema,
+	overlaySizeSchema,
+	previewFitModeSchema,
+	ringColorSchema,
+	ringThicknessSchema,
+} from "./appearance.js";
+import { appLanguageSchema, defaultAppLanguage, isRecord } from "./language.js";
+import {
+	defaultWindowState,
+	mergeWindowState,
+	minimumWindowHeight,
+	minimumWindowWidth,
+	type WindowState,
+} from "./window-state.js";
+
+const selectedCameraDeviceIdSchema = z.string().min(1).nullable();
+
+export const camletSettingsSchema = z.object({
+	language: appLanguageSchema,
+	selectedCameraDeviceId: selectedCameraDeviceIdSchema,
+	overlayShape: overlayShapeSchema,
+	overlaySize: overlaySizeSchema,
+	ringColor: ringColorSchema,
+	ringThickness: ringThicknessSchema,
+	previewFitMode: previewFitModeSchema,
+	window: z.object({
+		x: z.number().int(),
+		y: z.number().int(),
+		width: z.number().int().min(minimumWindowWidth),
+		height: z.number().int().min(minimumWindowHeight),
+	}),
+});
+
+export const overlayAppearanceSettingsKeys = [
+	"overlayShape",
+	"overlaySize",
+	"ringColor",
+	"ringThickness",
+	"previewFitMode",
+] as const;
+
+export type CamletSettings = z.infer<typeof camletSettingsSchema>;
+export type CamletSettingsPatch = Partial<Omit<CamletSettings, "window">> & {
+	window?: Partial<WindowState>;
+};
+
+export const defaultCamletSettings: CamletSettings = {
+	language: defaultAppLanguage,
+	selectedCameraDeviceId: null,
+	...defaultOverlayAppearanceSettings,
+	window: defaultWindowState,
+};
+
+function parseWithFallback<T>(
+	schema: z.ZodType<T>,
+	value: unknown,
+	fallback: T,
+): T {
+	const result = schema.safeParse(value);
+	return result.success ? result.data : fallback;
+}
+
+function resolveLegacyOverlayShape(value: unknown): unknown {
+	return value === "ring" ? "circle" : value;
+}
+
+export function getOverlayAppearanceSettings(
+	settings: Pick<
+		CamletSettings,
+		(typeof overlayAppearanceSettingsKeys)[number]
+	>,
+): OverlayAppearanceSettings {
+	return {
+		overlayShape: settings.overlayShape,
+		overlaySize: settings.overlaySize,
+		ringColor: settings.ringColor,
+		ringThickness: settings.ringThickness,
+		previewFitMode: settings.previewFitMode,
+	};
+}
+
+export function mergeOverlayAppearanceSettings(
+	value: unknown,
+): OverlayAppearanceSettings {
+	if (!isRecord(value)) {
+		return { ...defaultOverlayAppearanceSettings };
+	}
+
+	return {
+		overlayShape: parseWithFallback(
+			overlayShapeSchema,
+			resolveLegacyOverlayShape(value.overlayShape ?? value.shape),
+			defaultOverlayAppearanceSettings.overlayShape,
+		),
+		overlaySize: parseWithFallback(
+			overlaySizeSchema,
+			value.overlaySize ?? value.size,
+			defaultOverlayAppearanceSettings.overlaySize,
+		),
+		ringColor: parseWithFallback(
+			ringColorSchema,
+			value.ringColor ?? value.color,
+			defaultOverlayAppearanceSettings.ringColor,
+		),
+		ringThickness: parseWithFallback(
+			ringThicknessSchema,
+			value.ringThickness ?? value.borderWidth,
+			defaultOverlayAppearanceSettings.ringThickness,
+		),
+		previewFitMode: parseWithFallback(
+			previewFitModeSchema,
+			value.previewFitMode,
+			defaultOverlayAppearanceSettings.previewFitMode,
+		),
+	};
+}
+
+export function mergeCamletSettings(value: unknown): CamletSettings {
+	if (!isRecord(value)) {
+		return {
+			...defaultCamletSettings,
+			window: { ...defaultCamletSettings.window },
+		};
+	}
+
+	const legacyPosition = isRecord(value.position) ? value.position : undefined;
+	const windowValue = isRecord(value.window)
+		? {
+				...legacyPosition,
+				...value.window,
+			}
+		: legacyPosition;
+	const overlayAppearance = mergeOverlayAppearanceSettings(value);
+
+	return {
+		language: parseWithFallback(
+			appLanguageSchema,
+			value.language,
+			defaultCamletSettings.language,
+		),
+		selectedCameraDeviceId: parseWithFallback(
+			selectedCameraDeviceIdSchema,
+			value.selectedCameraDeviceId ?? value.selectedCameraDevice,
+			defaultCamletSettings.selectedCameraDeviceId,
+		),
+		...overlayAppearance,
+		window: mergeWindowState(windowValue),
+	};
+}
+
+export function applyCamletSettingsPatch(
+	current: CamletSettings,
+	patch: CamletSettingsPatch,
+): CamletSettings {
+	return mergeCamletSettings({
+		...current,
+		...patch,
+		window: {
+			...current.window,
+			...patch.window,
+		},
+	});
+}
+
+export function applyOverlayAppearanceSettingsPatch(
+	current: CamletSettings,
+	patch: OverlayAppearanceSettingsPatch,
+): CamletSettings {
+	const nextPatch = overlayAppearanceSettingsPatchSchema.parse(patch);
+
+	return applyCamletSettingsPatch(current, {
+		...(nextPatch.overlayShape !== undefined
+			? { overlayShape: nextPatch.overlayShape }
+			: {}),
+		...(nextPatch.overlaySize !== undefined
+			? { overlaySize: nextPatch.overlaySize }
+			: {}),
+		...(nextPatch.ringColor !== undefined
+			? { ringColor: nextPatch.ringColor }
+			: {}),
+		...(nextPatch.ringThickness !== undefined
+			? { ringThickness: nextPatch.ringThickness }
+			: {}),
+		...(nextPatch.previewFitMode !== undefined
+			? { previewFitMode: nextPatch.previewFitMode }
+			: {}),
+	});
+}
+
+export {
+	type OverlayAppearanceSettings,
+	type OverlayAppearanceSettingsPatch,
+	overlayAppearanceSettingsPatchSchema,
+	overlayAppearanceSettingsSchema,
+};

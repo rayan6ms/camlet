@@ -1,0 +1,36 @@
+appId: io.camlet.app
+productName: Camlet
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+directories:
+  buildResources: assets
+  output: release
+files:
+  - dist/renderer/**
+  - dist-electron/**
+  - package.json
+  - LICENSE
+extraMetadata:
+  main: dist-electron/main/index.js
+asar: true
+npmRebuild: false
+linux:
+  category: Utility
+  executableName: camlet
+  icon: icons
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+  target:
+    - target: AppImage
+      arch:
+        - x64
+win:
+  icon: icon.ico
+  artifactName: ${productName}-${version}-windows-${arch}.${ext}
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  perMachine: false

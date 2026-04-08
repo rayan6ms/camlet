@@ -1,0 +1,92 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Build output
+dist/
+dist-electron/
+build/
+out/
+release/
+coverage/
+.vite/
+playwright-report/
+test-results/
+
+# Electron packaging artifacts
+*.AppImage
+*.deb
+*.rpm
+*.snap
+*.flatpak
+*.exe
+*.msi
+*.nsis.7z
+*.blockmap
+*.zip
+*.tar.gz
+*.dmg
+
+# TypeScript
+*.tsbuildinfo
+.tsbuildinfo/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Playwright / browser artifacts
+test-results/
+playwright-report/
+blob-report/
+
+# Cache directories
+.cache/
+.eslintcache
+
+# Temporary files
+tmp/
+temp/
+
+# Local app data / secrets / developer overrides
+data/
+userdata/
+config.local.json
+settings.local.json
+
+# Generated icons or packaged assets (if generated locally)
+assets/generated/
+
+# Optional: auto-updater / release metadata generated locally
+latest.yml
+latest-linux.yml
+latest-mac.yml
+
+# Flatpak / packaging workdirs
+.flatpak-builder/

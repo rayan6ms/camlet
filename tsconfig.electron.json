@@ -1,0 +1,19 @@
+{
+	"extends": "./tsconfig.base.json",
+	"compilerOptions": {
+		"composite": true,
+		"tsBuildInfoFile": ".tsbuildinfo/electron.tsbuildinfo",
+		"module": "NodeNext",
+		"moduleResolution": "NodeNext",
+		"types": ["node"],
+		"rootDir": "./src",
+		"outDir": "./dist-electron",
+		"sourceMap": true
+	},
+	"include": [
+		"src/main/**/*.ts",
+		"src/preload/**/*.cts",
+		"src/preload/**/*.ts",
+		"src/shared/**/*.ts"
+	]
+}

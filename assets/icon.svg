@@ -1,0 +1,21 @@
+<svg
+	xmlns="http://www.w3.org/2000/svg"
+	viewBox="0 0 512 512"
+	fill="none"
+>
+	<defs>
+		<linearGradient id="camlet-bg" x1="96" y1="64" x2="416" y2="448">
+			<stop offset="0" stop-color="#132634" />
+			<stop offset="1" stop-color="#091118" />
+		</linearGradient>
+		<radialGradient id="camlet-glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(192 148) rotate(58.24) scale(282.459)">
+			<stop stop-color="#7CE2C6" stop-opacity="0.95" />
+			<stop offset="1" stop-color="#7CE2C6" stop-opacity="0" />
+		</radialGradient>
+	</defs>
+	<rect x="32" y="32" width="448" height="448" rx="128" fill="url(#camlet-bg)" />
+	<rect x="32" y="32" width="448" height="448" rx="128" fill="url(#camlet-glow)" />
+	<circle cx="256" cy="256" r="138" fill="#0C1821" />
+	<circle cx="256" cy="256" r="118" stroke="#7CE2C6" stroke-width="28" />
+	<circle cx="202" cy="206" r="22" fill="#CFFEF1" fill-opacity="0.92" />
+</svg>

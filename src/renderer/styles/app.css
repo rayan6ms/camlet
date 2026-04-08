@@ -1,0 +1,327 @@
+:root {
+	color-scheme: dark;
+	font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
+	color: #f4f7fb;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+	margin: 0;
+	min-height: 100%;
+	background: transparent;
+}
+
+body {
+	min-height: 100vh;
+	overflow: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+	font: inherit;
+}
+
+.app-shell {
+	position: relative;
+	min-height: 100vh;
+}
+
+.startup-screen {
+	display: grid;
+	gap: 14px;
+	max-width: 520px;
+	margin: 18px;
+	padding: 18px;
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	border-radius: 28px;
+	background:
+		radial-gradient(
+			circle at top left,
+			rgba(255, 165, 125, 0.18),
+			transparent 36%
+		),
+		linear-gradient(180deg, rgba(12, 16, 22, 0.92), rgba(12, 16, 22, 0.8));
+	box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
+	backdrop-filter: blur(18px);
+}
+
+.startup-screen__eyebrow {
+	margin: 0;
+	font-size: 0.72rem;
+	font-weight: 700;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: #ffb48f;
+}
+
+.startup-screen__title {
+	margin: 0;
+	font-size: 1.42rem;
+	line-height: 1.1;
+}
+
+.startup-screen__copy {
+	margin: 0;
+	font-size: 0.92rem;
+	line-height: 1.5;
+	color: rgba(244, 247, 251, 0.8);
+}
+
+.startup-screen__details {
+	display: grid;
+	gap: 10px;
+	padding: 12px 14px;
+	border-radius: 16px;
+	background: rgba(255, 255, 255, 0.05);
+	font-size: 0.78rem;
+}
+
+.startup-screen__details summary {
+	cursor: pointer;
+}
+
+.startup-screen__details code {
+	overflow-wrap: anywhere;
+	color: rgba(244, 247, 251, 0.76);
+}
+
+.camlet-stage {
+	position: relative;
+	display: grid;
+	place-items: center;
+	width: 100vw;
+	height: 100vh;
+}
+
+.camlet-surface {
+	--camlet-overlay-size: 224px;
+	--camlet-ring-color: #7ce2c6;
+	--camlet-ring-glow: rgba(124, 226, 198, 0.32);
+	--camlet-ring-thickness: 8px;
+	--camlet-preview-fit: cover;
+	--camlet-overlay-radius: 999px;
+	--camlet-overlay-clip-path: circle(50% at 50% 50%);
+	--camlet-inner-clip-path: circle(50% at 50% 50%);
+	position: relative;
+	display: grid;
+	place-items: center;
+	overflow: hidden;
+	border-radius: var(--camlet-overlay-radius);
+	clip-path: var(--camlet-overlay-clip-path);
+	background: transparent;
+	cursor: grab;
+	-webkit-app-region: no-drag;
+	contain: paint;
+	isolation: isolate;
+	touch-action: none;
+	user-select: none;
+}
+
+.camlet-surface:active {
+	cursor: grabbing;
+}
+
+.camlet-surface--resizing,
+.camlet-surface--resizing:active {
+	cursor: default;
+}
+
+.camlet-surface__viewport {
+	position: absolute;
+	inset: var(--camlet-ring-thickness);
+	overflow: hidden;
+	border-radius: max(
+		0px,
+		calc(var(--camlet-overlay-radius) - var(--camlet-ring-thickness))
+	);
+	clip-path: var(--camlet-inner-clip-path);
+	background: rgba(5, 10, 16, 0.86);
+	contain: paint;
+}
+
+.camlet-surface__video {
+	width: 100%;
+	height: 100%;
+	object-fit: var(--camlet-preview-fit);
+	transform: scaleX(-1);
+	background: transparent;
+	pointer-events: none;
+	clip-path: var(--camlet-inner-clip-path);
+	backface-visibility: hidden;
+}
+
+.camlet-surface__ring {
+	position: absolute;
+	inset: 0;
+	border: var(--camlet-ring-thickness) solid var(--camlet-ring-color);
+	border-radius: inherit;
+	box-shadow:
+		inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+		0 0 12px var(--camlet-ring-glow);
+	pointer-events: none;
+}
+
+.camlet-hint,
+.camlet-status-card,
+.camlet-resize-banner {
+	position: absolute;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 3;
+}
+
+.camlet-hint {
+	top: 50%;
+	max-width: 220px;
+	padding: 10px 14px;
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 999px;
+	background: rgba(12, 16, 22, 0.7);
+	backdrop-filter: blur(16px);
+	font-size: 0.8rem;
+	font-weight: 500;
+	text-align: center;
+	animation: camlet-fade-in 180ms ease-out;
+	pointer-events: none;
+}
+
+.camlet-status-card {
+	top: 50%;
+	display: grid;
+	gap: 10px;
+	width: min(240px, calc(100% - 32px));
+	padding: 16px;
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 22px;
+	background: rgba(12, 16, 22, 0.76);
+	backdrop-filter: blur(20px);
+	text-align: center;
+	-webkit-app-region: no-drag;
+}
+
+.camlet-status-card__title {
+	margin: 0;
+	font-size: 0.95rem;
+	font-weight: 700;
+}
+
+.camlet-status-card__copy {
+	margin: 0;
+	font-size: 0.82rem;
+	line-height: 1.45;
+	color: rgba(244, 247, 251, 0.76);
+}
+
+.camlet-resize-banner {
+	bottom: 16px;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	max-width: calc(100% - 32px);
+	padding: 10px 12px;
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 999px;
+	background: rgba(12, 16, 22, 0.78);
+	backdrop-filter: blur(16px);
+	-webkit-app-region: no-drag;
+}
+
+.camlet-resize-banner__copy {
+	margin: 0;
+	font-size: 0.76rem;
+	line-height: 1.35;
+	color: rgba(244, 247, 251, 0.76);
+}
+
+.camlet-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 9px 13px;
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.08);
+	color: inherit;
+	cursor: pointer;
+	transition:
+		background-color 140ms ease,
+		border-color 140ms ease,
+		transform 140ms ease;
+	-webkit-app-region: no-drag;
+}
+
+.camlet-button:hover {
+	background: rgba(255, 255, 255, 0.14);
+	border-color: rgba(255, 255, 255, 0.22);
+}
+
+.camlet-button:active {
+	transform: translateY(1px);
+}
+
+.camlet-button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	transform: none;
+}
+
+.camlet-button--quiet {
+	padding: 8px 12px;
+	background: rgba(255, 255, 255, 0.04);
+}
+
+.camlet-resize-handle {
+	position: absolute;
+	z-index: 4;
+	width: 18px;
+	height: 18px;
+	border: 2px solid #ffffff;
+	border-radius: 999px;
+	background: var(--camlet-ring-color);
+	box-shadow: 0 0 0 4px rgba(12, 16, 22, 0.46);
+	-webkit-app-region: no-drag;
+}
+
+.camlet-resize-handle--nw {
+	top: 6px;
+	left: 6px;
+	cursor: nwse-resize;
+}
+
+.camlet-resize-handle--ne {
+	top: 6px;
+	right: 6px;
+	cursor: nesw-resize;
+}
+
+.camlet-resize-handle--se {
+	right: 6px;
+	bottom: 6px;
+	cursor: nwse-resize;
+}
+
+.camlet-resize-handle--sw {
+	bottom: 6px;
+	left: 6px;
+	cursor: nesw-resize;
+}
+
+@keyframes camlet-fade-in {
+	from {
+		opacity: 0;
+		transform: translate(-50%, 6px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translate(-50%, 0);
+	}
+}

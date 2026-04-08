@@ -1,0 +1,25 @@
+{
+	"extends": "./tsconfig.base.json",
+	"compilerOptions": {
+		"composite": true,
+		"tsBuildInfoFile": ".tsbuildinfo/tests.tsbuildinfo",
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"noEmit": true,
+		"types": ["node", "vitest/globals"]
+	},
+	"include": [
+		"tests/**/*.ts",
+		"src/shared/**/*.ts",
+		"src/main/bootstrap.ts",
+		"src/main/security.ts",
+		"src/main/services/settings-store-core.ts",
+		"src/preload/api.ts",
+		"src/renderer/locales/**/*.ts",
+		"src/renderer/features/overlay-shell/appearance.ts",
+		"src/renderer/features/overlay-shell/camera.ts",
+		"src/renderer/features/overlay-shell/diagnostics.ts",
+		"src/renderer/features/overlay-shell/settings-panel.ts",
+		"src/renderer/startup.ts"
+	]
+}
