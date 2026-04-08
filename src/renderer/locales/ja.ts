@@ -173,7 +173,8 @@ export const jaLocale: RendererLocale = {
 			circle: "円",
 			roundedSquare: "四角形",
 			diamond: "ダイヤ",
-			rectangle: "長方形",
+			rectangleY: "長方形 Y",
+			rectangleX: "長方形 X",
 		},
 		fitModes: {
 			cover: "カバー",

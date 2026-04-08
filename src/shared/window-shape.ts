@@ -84,25 +84,37 @@ function getRectangleRow(
 	height: number,
 	rowCenterY: number,
 	cornerRoundness: number,
-): ShapeRow {
-	const horizontalInset = width * 0.16;
+	orientation: "x" | "y",
+): ShapeRow | null {
+	const horizontalInset = orientation === "y" ? width * 0.16 : 0;
+	const verticalInset = orientation === "x" ? height * 0.16 : 0;
 	const innerWidth = width - horizontalInset * 2;
+	const innerHeight = height - verticalInset * 2;
+	const shiftedRowCenterY = rowCenterY - verticalInset;
+
+	if (shiftedRowCenterY < 0 || shiftedRowCenterY > innerHeight) {
+		return null;
+	}
+
 	const radius = Math.min(
-		getRoundedSquareRadius(Math.min(innerWidth, height), cornerRoundness),
+		getRoundedSquareRadius(Math.min(innerWidth, innerHeight), cornerRoundness),
 		innerWidth / 2,
-		height / 2,
+		innerHeight / 2,
 	);
 	const upperCurveLimit = radius;
-	const lowerCurveLimit = height - radius;
+	const lowerCurveLimit = innerHeight - radius;
 
-	if (rowCenterY >= upperCurveLimit && rowCenterY <= lowerCurveLimit) {
+	if (
+		shiftedRowCenterY >= upperCurveLimit &&
+		shiftedRowCenterY <= lowerCurveLimit
+	) {
 		return toRow(horizontalInset, innerWidth, width);
 	}
 
 	const distanceFromCurve =
-		rowCenterY < upperCurveLimit
-			? upperCurveLimit - rowCenterY
-			: rowCenterY - lowerCurveLimit;
+		shiftedRowCenterY < upperCurveLimit
+			? upperCurveLimit - shiftedRowCenterY
+			: shiftedRowCenterY - lowerCurveLimit;
 	const curveInset =
 		radius - Math.sqrt(radius * radius - distanceFromCurve * distanceFromCurve);
 
@@ -117,16 +129,41 @@ function getDiamondRow(
 	width: number,
 	height: number,
 	rowCenterY: number,
+	cornerRoundness: number,
 ): ShapeRow | null {
+	const centerX = width / 2;
 	const centerY = height / 2;
-	const normalizedDistance = Math.abs(rowCenterY - centerY) / centerY;
+	const sideLength = Math.min(width, height) / Math.SQRT2;
+	const halfSide = sideLength / 2;
+	const radius = Math.min(Math.max(0, cornerRoundness), halfSide);
+	let left = Number.POSITIVE_INFINITY;
+	let right = Number.NEGATIVE_INFINITY;
 
-	if (normalizedDistance > 1) {
+	for (let x = 0; x < width; x += 1) {
+		const dx = x + 0.5 - centerX;
+		const dy = rowCenterY - centerY;
+		const localX = (dx + dy) / Math.SQRT2;
+		const localY = (-dx + dy) / Math.SQRT2;
+		const qx = Math.abs(localX) - (halfSide - radius);
+		const qy = Math.abs(localY) - (halfSide - radius);
+		const outsideX = Math.max(qx, 0);
+		const outsideY = Math.max(qy, 0);
+		const inside =
+			(qx <= 0 && qy <= 0) || Math.hypot(outsideX, outsideY) <= radius;
+
+		if (!inside) {
+			continue;
+		}
+
+		left = Math.min(left, x);
+		right = Math.max(right, x + 1);
+	}
+
+	if (!Number.isFinite(left) || !Number.isFinite(right)) {
 		return null;
 	}
 
-	const rowWidth = width * (1 - normalizedDistance);
-	return toRow(width / 2 - rowWidth / 2, rowWidth, width);
+	return toRow(left, right - left, width);
 }
 
 function compressRows(rows: Array<ShapeRow | null>): WindowShapeRectangle[] {
@@ -179,10 +216,12 @@ export function createWindowShapeRectangles(
 				return getEllipseRow(width, height, rowCenterY);
 			case "rounded-square":
 				return getRoundedSquareRow(width, height, rowCenterY, cornerRoundness);
-			case "rectangle":
-				return getRectangleRow(width, height, rowCenterY, cornerRoundness);
+			case "rectangle-y":
+				return getRectangleRow(width, height, rowCenterY, cornerRoundness, "y");
+			case "rectangle-x":
+				return getRectangleRow(width, height, rowCenterY, cornerRoundness, "x");
 			case "diamond":
-				return getDiamondRow(width, height, rowCenterY);
+				return getDiamondRow(width, height, rowCenterY, cornerRoundness);
 		}
 
 		return null;

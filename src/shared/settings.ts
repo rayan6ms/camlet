@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
 	cornerRoundnessSchema,
 	defaultOverlayAppearanceSettings,
+	normalizeRingThickness,
 	type OverlayAppearanceSettings,
 	type OverlayAppearanceSettingsPatch,
 	overlayAppearanceSettingsPatchSchema,
@@ -74,7 +75,15 @@ function parseWithFallback<T>(
 }
 
 function resolveLegacyOverlayShape(value: unknown): unknown {
-	return value === "ring" ? "circle" : value;
+	if (value === "ring") {
+		return "circle";
+	}
+
+	if (value === "rectangle") {
+		return "rectangle-y";
+	}
+
+	return value;
 }
 
 export function getOverlayAppearanceSettings(
@@ -101,6 +110,8 @@ export function mergeOverlayAppearanceSettings(
 		return { ...defaultOverlayAppearanceSettings };
 	}
 
+	const rawRingThickness = value.ringThickness ?? value.borderWidth;
+
 	return {
 		overlayShape: parseWithFallback(
 			overlayShapeSchema,
@@ -124,7 +135,9 @@ export function mergeOverlayAppearanceSettings(
 		),
 		ringThickness: parseWithFallback(
 			ringThicknessSchema,
-			value.ringThickness ?? value.borderWidth,
+			typeof rawRingThickness === "number"
+				? normalizeRingThickness(rawRingThickness)
+				: rawRingThickness,
 			defaultOverlayAppearanceSettings.ringThickness,
 		),
 		cornerRoundness: parseWithFallback(

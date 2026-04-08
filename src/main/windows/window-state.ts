@@ -28,7 +28,13 @@ function toDisplayWorkArea(bounds: Electron.Rectangle): DisplayWorkArea {
 function getDisplayWorkAreaForWindowState(
 	windowState: WindowState,
 ): DisplayWorkArea {
-	return toDisplayWorkArea(screen.getDisplayMatching(windowState).workArea);
+	return toDisplayWorkArea(screen.getDisplayMatching(windowState).bounds);
+}
+
+export function getCurrentDisplayWorkArea(
+	window: BrowserWindow,
+): DisplayWorkArea {
+	return getDisplayWorkAreaForWindowState(getWindowStateFromWindow(window));
 }
 
 function getDisplayWorkAreaForPointer(pointer: ScreenPoint): DisplayWorkArea {
@@ -36,7 +42,7 @@ function getDisplayWorkAreaForPointer(pointer: ScreenPoint): DisplayWorkArea {
 		screen.getDisplayNearestPoint({
 			x: pointer.screenX,
 			y: pointer.screenY,
-		}).workArea,
+		}).bounds,
 	);
 }
 

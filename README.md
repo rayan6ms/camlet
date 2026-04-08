@@ -18,6 +18,7 @@ The current scope includes:
 - copyable diagnostics summary for packaged-app validation and bug reports
 - deterministic locale structure checks against the English source locale
 - safer camera fallback handling for missing labels, stale saved devices, busy cameras, and missing media APIs
+- focused-window keyboard shortcuts for precise overlay movement and resizing
 - Electron Builder packaging for Linux AppImage and prepared Windows NSIS output
 - GitHub Actions workflows for CI, packaged artifacts, and tag-driven releases
 - deterministic unit and integration coverage for shared logic and bootstrap/security paths
@@ -53,6 +54,15 @@ pnpm install
 - `pnpm check`: runs `biome check`
 - `pnpm format`: runs `biome format --write`
 - `pnpm clean`: removes generated build and cache output
+
+## Shortcuts
+
+These shortcuts only apply while the Camlet window itself is focused.
+
+- `Arrow keys`: move the overlay by 1px
+- `Shift + Arrow keys`: move the overlay by 24px
+- `-` or `Numpad -`: decrease overlay size
+- `=` or `Numpad +`: increase overlay size
 
 ## Project Structure
 

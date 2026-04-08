@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { isRecord } from "./language.js";
 
-export const minimumWindowWidth = 96;
-export const minimumWindowHeight = 96;
+export const minimumWindowWidth = 176;
+export const minimumWindowHeight = 176;
 export const defaultWindowState = {
 	x: 48,
 	y: 48,
@@ -32,12 +32,20 @@ export interface DisplayWorkArea {
 	height: number;
 }
 
+export const displayWorkAreaSchema = z.object({
+	x: z.number().int(),
+	y: z.number().int(),
+	width: z.number().int().min(1),
+	height: z.number().int().min(1),
+});
+
 export interface DragOffset {
 	x: number;
 	y: number;
 }
 
 export type ResizeHandle = "nw" | "ne" | "se" | "sw";
+export const resizeStep = 24;
 
 function clamp(value: number, min: number, max: number) {
 	return Math.min(Math.max(value, min), max);
@@ -105,6 +113,13 @@ export function clampWindowStateToDisplay(
 		width,
 		height,
 	};
+}
+
+export function getMaximumSquareWindowSize(workArea: DisplayWorkArea): number {
+	return Math.max(
+		Math.min(workArea.width, workArea.height),
+		Math.min(minimumWindowWidth, minimumWindowHeight),
+	);
 }
 
 export function getDragOffset(
@@ -204,4 +219,25 @@ export function resizeSquareWindowStateWithPointer(
 				height: size,
 			};
 	}
+}
+
+export function resizeSquareWindowStateByDelta(
+	windowState: WindowState,
+	delta: number,
+	maximumSize?: number,
+): WindowState {
+	const size = clamp(
+		windowState.width + delta,
+		minimumWindowWidth,
+		maximumSize ?? Number.POSITIVE_INFINITY,
+	);
+	const centerX = windowState.x + windowState.width / 2;
+	const centerY = windowState.y + windowState.height / 2;
+
+	return {
+		x: Math.round(centerX - size / 2),
+		y: Math.round(centerY - size / 2),
+		width: size,
+		height: size,
+	};
 }

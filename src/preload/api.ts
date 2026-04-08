@@ -12,7 +12,11 @@ import type {
 	CamletSettings,
 	OverlayAppearanceSettingsPatch,
 } from "../shared/settings.js";
-import type { ScreenPoint, WindowState } from "../shared/window-state.js";
+import type {
+	DisplayWorkArea,
+	ScreenPoint,
+	WindowState,
+} from "../shared/window-state.js";
 
 interface IpcRendererLike {
 	invoke(channel: string, ...args: unknown[]): Promise<unknown>;
@@ -51,6 +55,8 @@ export function createCamletApi(ipcRenderer: IpcRendererLike): CamletApi {
 			invoke<void>(ipcChannels.setWindowResizable, resizable),
 		setWindowState: (windowState: WindowState) =>
 			invoke<WindowState>(ipcChannels.setWindowState, windowState),
+		getCurrentDisplayWorkArea: () =>
+			invoke<DisplayWorkArea>(ipcChannels.getCurrentDisplayWorkArea),
 		getAboutInfo: () => invoke<AboutInfo>(ipcChannels.getAboutInfo),
 		openAboutWindow: () => invoke<void>(ipcChannels.openAboutWindow),
 		updateContextMenuState: (request: CamletContextMenuRequest) =>

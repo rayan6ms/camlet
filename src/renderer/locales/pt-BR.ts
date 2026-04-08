@@ -176,7 +176,8 @@ export const ptBrLocale: RendererLocale = {
 			circle: "Círculo",
 			roundedSquare: "Quadrado",
 			diamond: "Diamante",
-			rectangle: "Retângulo",
+			rectangleY: "Retângulo Y",
+			rectangleX: "Retângulo X",
 		},
 		fitModes: {
 			cover: "Cobrir",

@@ -55,16 +55,20 @@ textarea {
 .about-screen {
 	display: grid;
 	min-height: 100vh;
-	padding: 24px;
-	align-items: start;
+	padding: 10px 0;
+	align-items: center;
+	justify-items: center;
 	background: #0b0f14;
+	font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
 }
 
 .about-screen__content {
 	display: grid;
-	gap: 18px;
-	width: min(560px, 100%);
+	gap: 12px;
+	width: min(320px, calc(100% - 12px));
 	margin: 0 auto;
+	justify-items: center;
+	text-align: center;
 }
 
 .about-screen__title {
@@ -75,16 +79,16 @@ textarea {
 
 .about-screen__description {
 	margin: 0;
-	max-width: 52ch;
-	font-size: 0.96rem;
-	line-height: 1.6;
+	max-width: 31ch;
+	font-size: 0.95rem;
+	line-height: 1.55;
 	color: rgba(244, 247, 251, 0.78);
 }
 
 .about-screen__avatar {
-	width: 88px;
-	height: 88px;
-	border-radius: 20px;
+	width: 98px;
+	height: 98px;
+	border-radius: 22px;
 	object-fit: cover;
 }
 
@@ -94,7 +98,7 @@ textarea {
 }
 
 .about-screen__links a {
-	width: fit-content;
+	font-size: 0.97rem;
 	color: #9be7d4;
 	text-decoration: none;
 }
@@ -105,23 +109,27 @@ textarea {
 
 .about-screen__meta {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-	gap: 14px 18px;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px 2px;
+	width: 100%;
 	margin: 0;
-	padding-top: 6px;
+	padding-top: 4px;
 }
 
 .about-screen__meta div {
 	display: grid;
 	gap: 4px;
+	justify-items: center;
 }
 
 .about-screen__meta dt {
 	margin: 0;
-	font-size: 0.72rem;
-	letter-spacing: 0.12em;
+	font-size: 0.68rem;
+	letter-spacing: 0.05em;
 	text-transform: uppercase;
 	color: rgba(244, 247, 251, 0.54);
+	font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
+	font-weight: 600;
 }
 
 .about-screen__meta dd {
@@ -184,26 +192,18 @@ textarea {
 	--camlet-ring-accent-color: #c8fff1;
 	--camlet-ring-gradient: linear-gradient(145deg, #7ce2c6, #c8fff1);
 	--camlet-ring-glow: rgba(124, 226, 198, 0.32);
-	--camlet-ring-thickness: 8px;
+	--camlet-ring-thickness: 4px;
 	--camlet-preview-fit: cover;
 	--camlet-overlay-radius: 999px;
 	--camlet-overlay-clip-path: circle(50% at 50% 50%);
 	--camlet-inner-clip-path: circle(50% at 50% 50%);
-	--camlet-overlay-fill: linear-gradient(
-		180deg,
-		rgba(6, 10, 16, 0.94),
-		rgba(6, 10, 16, 0.82)
-	);
 	position: relative;
 	display: grid;
 	place-items: center;
-	overflow: hidden;
-	border-radius: var(--camlet-overlay-radius);
-	clip-path: var(--camlet-overlay-clip-path);
-	background: var(--camlet-overlay-fill);
+	overflow: visible;
+	background: transparent;
 	cursor: grab;
 	-webkit-app-region: drag;
-	contain: paint;
 	isolation: isolate;
 	touch-action: none;
 	user-select: none;
@@ -222,10 +222,6 @@ textarea {
 	position: absolute;
 	inset: var(--camlet-ring-thickness);
 	overflow: hidden;
-	border-radius: max(
-		0px,
-		calc(var(--camlet-overlay-radius) - var(--camlet-ring-thickness))
-	);
 	clip-path: var(--camlet-inner-clip-path);
 	background:
 		radial-gradient(
@@ -235,6 +231,7 @@ textarea {
 		),
 		rgba(5, 10, 16, 0.86);
 	contain: paint;
+	z-index: 1;
 }
 
 .camlet-surface__video {
@@ -251,28 +248,20 @@ textarea {
 .camlet-surface__ring {
 	position: absolute;
 	inset: 0;
-	width: 100%;
-	height: 100%;
+	border-radius: var(--camlet-overlay-radius);
+	clip-path: var(--camlet-overlay-clip-path);
+	background:
+		radial-gradient(
+			circle at 18% 18%,
+			rgba(255, 255, 255, 0.16),
+			transparent 34%
+		),
+		var(--camlet-ring-gradient);
+	box-shadow:
+		0 0 0 0.5px var(--camlet-surface-border),
+		0 0 18px var(--camlet-ring-glow);
 	pointer-events: none;
-	filter: drop-shadow(0 0 18px var(--camlet-ring-glow));
-	overflow: visible;
-}
-
-.camlet-surface__ring-shape {
-	fill: none;
-	stroke-linejoin: round;
-	stroke-linecap: round;
-	vector-effect: non-scaling-stroke;
-	shape-rendering: geometricPrecision;
-}
-
-.camlet-surface__ring-highlight {
-	fill: none;
-	stroke: rgba(255, 255, 255, 0.2);
-	stroke-linejoin: round;
-	stroke-linecap: round;
-	vector-effect: non-scaling-stroke;
-	shape-rendering: geometricPrecision;
+	z-index: 0;
 }
 
 .camlet-hint,
@@ -280,7 +269,7 @@ textarea {
 .camlet-resize-banner {
 	position: absolute;
 	left: 50%;
-	transform: translateX(-50%);
+	transform: translate(-50%, -50%);
 	z-index: 3;
 }
 
@@ -327,14 +316,14 @@ textarea {
 }
 
 .camlet-resize-banner {
-	bottom: 16px;
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	max-width: calc(100% - 32px);
-	padding: 10px 12px;
+	top: 50%;
+	display: grid;
+	justify-items: center;
+	gap: 8px;
+	width: 116px;
+	padding: 10px;
 	border: 1px solid rgba(255, 255, 255, 0.14);
-	border-radius: 999px;
+	border-radius: 18px;
 	background: rgba(12, 16, 22, 0.78);
 	backdrop-filter: blur(16px);
 	-webkit-app-region: no-drag;
@@ -342,8 +331,8 @@ textarea {
 
 .camlet-resize-banner__copy {
 	margin: 0;
-	font-size: 0.76rem;
-	line-height: 1.35;
+	font-size: 0.72rem;
+	line-height: 1.2;
 	color: rgba(244, 247, 251, 0.76);
 }
 
@@ -374,6 +363,20 @@ textarea {
 	transform: translateY(1px);
 }
 
+.camlet-resize-banner__controls {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px;
+	width: 100%;
+}
+
+.camlet-resize-banner__controls .camlet-button {
+	width: 100%;
+	min-width: 0;
+	min-height: 34px;
+	padding: 8px 0;
+}
+
 .camlet-button:disabled {
 	opacity: 0.5;
 	cursor: not-allowed;
@@ -381,54 +384,18 @@ textarea {
 }
 
 .camlet-button--quiet {
-	padding: 8px 12px;
+	padding: 7px 10px;
 	background: rgba(255, 255, 255, 0.04);
-}
-
-.camlet-resize-handle {
-	position: absolute;
-	z-index: 4;
-	width: 18px;
-	height: 18px;
-	border: 2px solid #ffffff;
-	border-radius: 999px;
-	background: var(--camlet-ring-color);
-	box-shadow: 0 0 0 4px rgba(12, 16, 22, 0.46);
-	-webkit-app-region: no-drag;
-}
-
-.camlet-resize-handle--nw {
-	top: 6px;
-	left: 6px;
-	cursor: nwse-resize;
-}
-
-.camlet-resize-handle--ne {
-	top: 6px;
-	right: 6px;
-	cursor: nesw-resize;
-}
-
-.camlet-resize-handle--se {
-	right: 6px;
-	bottom: 6px;
-	cursor: nwse-resize;
-}
-
-.camlet-resize-handle--sw {
-	bottom: 6px;
-	left: 6px;
-	cursor: nesw-resize;
 }
 
 @keyframes camlet-fade-in {
 	from {
 		opacity: 0;
-		transform: translate(-50%, 6px);
+		transform: translate(-50%, -44%);
 	}
 
 	to {
 		opacity: 1;
-		transform: translate(-50%, 0);
+		transform: translate(-50%, -50%);
 	}
 }

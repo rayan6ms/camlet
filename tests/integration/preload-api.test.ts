@@ -45,7 +45,8 @@ describe("preload API contract", () => {
 					circle: "Circle",
 					roundedSquare: "Square",
 					diamond: "Diamond",
-					rectangle: "Rectangle",
+					rectangleY: "Rectangle Y",
+					rectangleX: "Rectangle X",
 				},
 				fitModeOptions: {
 					cover: "Cover",
@@ -84,7 +85,7 @@ describe("preload API contract", () => {
 		await api.setLanguage("ja");
 		await api.setSelectedCameraDeviceId("camera-1");
 		await api.updateOverlayAppearanceSettings({
-			ringThickness: 12,
+			ringThickness: 8,
 		});
 		await api.startWindowDrag({
 			screenX: 50,
@@ -102,6 +103,7 @@ describe("preload API contract", () => {
 			width: 280,
 			height: 280,
 		});
+		await api.getCurrentDisplayWorkArea();
 		await api.updateContextMenuState(contextMenuPayload);
 		await api.showContextMenu(contextMenuPayload);
 
@@ -112,7 +114,7 @@ describe("preload API contract", () => {
 			[ipcChannels.openAboutWindow],
 			[ipcChannels.setLanguage, "ja"],
 			[ipcChannels.setSelectedCameraDeviceId, "camera-1"],
-			[ipcChannels.updateOverlayAppearanceSettings, { ringThickness: 12 }],
+			[ipcChannels.updateOverlayAppearanceSettings, { ringThickness: 8 }],
 			[ipcChannels.startWindowDrag, { screenX: 50, screenY: 60 }],
 			[ipcChannels.updateWindowDrag, { screenX: 70, screenY: 90 }],
 			[ipcChannels.endWindowDrag],
@@ -126,6 +128,7 @@ describe("preload API contract", () => {
 					height: 280,
 				},
 			],
+			[ipcChannels.getCurrentDisplayWorkArea],
 			[ipcChannels.updateContextMenuState, contextMenuPayload],
 			[ipcChannels.showContextMenu, contextMenuPayload],
 		]);

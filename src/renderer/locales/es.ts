@@ -177,7 +177,8 @@ export const esLocale: RendererLocale = {
 			circle: "Círculo",
 			roundedSquare: "Cuadrado",
 			diamond: "Diamante",
-			rectangle: "Rectángulo",
+			rectangleY: "Rectángulo Y",
+			rectangleX: "Rectángulo X",
 		},
 		fitModes: {
 			cover: "Cubrir",

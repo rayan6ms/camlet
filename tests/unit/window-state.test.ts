@@ -3,9 +3,11 @@ import {
 	clampWindowStateToDisplay,
 	defaultWindowState,
 	getDragOffset,
+	getMaximumSquareWindowSize,
 	isWindowStateEqual,
 	mergeWindowState,
 	moveWindowStateWithPointer,
+	resizeSquareWindowStateByDelta,
 	resizeSquareWindowStateWithPointer,
 } from "../../src/shared/window-state.js";
 
@@ -25,7 +27,7 @@ describe("window state defaults and validation", () => {
 		).toEqual({
 			x: -40,
 			y: 30,
-			width: 120,
+			width: defaultWindowState.width,
 			height: defaultWindowState.height,
 		});
 	});
@@ -78,6 +80,17 @@ describe("window state clamping", () => {
 			width: 300,
 			height: 260,
 		});
+	});
+
+	it("reports the largest square size that fits the current work area", () => {
+		expect(
+			getMaximumSquareWindowSize({
+				x: 0,
+				y: 0,
+				width: 1280,
+				height: 720,
+			}),
+		).toBe(720);
 	});
 });
 
@@ -163,6 +176,17 @@ describe("window resize math", () => {
 			y: -8,
 			width: 280,
 			height: 280,
+		});
+	});
+
+	it("caps step-based resizing at the supplied maximum size", () => {
+		expect(
+			resizeSquareWindowStateByDelta(defaultWindowState, 800, 300),
+		).toEqual({
+			x: 10,
+			y: 10,
+			width: 300,
+			height: 300,
 		});
 	});
 });

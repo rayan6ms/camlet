@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { AppBootstrap } from "../shared/bootstrap.js";
 import { AboutScreen } from "./components/AboutScreen.js";
 import { AppShell } from "./components/AppShell.js";
@@ -12,6 +13,10 @@ interface AppProps {
 
 export function App({ bootstrap, startupError }: AppProps) {
 	const isAboutRoute = window.location.hash === "#about";
+
+	useEffect(() => {
+		document.title = isAboutRoute ? "About Camlet" : "Camlet";
+	}, [isAboutRoute]);
 
 	return (
 		<AppShell>

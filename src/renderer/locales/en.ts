@@ -55,7 +55,7 @@ export const enLocale: RendererLocale = {
 			mode: "Runtime",
 			packaged: "Packaged",
 			platform: "Platform",
-			displayProtocol: "Display protocol",
+			displayProtocol: "Protocol",
 			electron: "Electron",
 			chrome: "Chrome",
 		},
@@ -172,7 +172,8 @@ export const enLocale: RendererLocale = {
 			circle: "Circle",
 			roundedSquare: "Square",
 			diamond: "Diamond",
-			rectangle: "Rectangle",
+			rectangleY: "Rectangle Y",
+			rectangleX: "Rectangle X",
 		},
 		fitModes: {
 			cover: "Cover",

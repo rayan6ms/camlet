@@ -41,7 +41,7 @@ describe("Camlet settings schema", () => {
 		expect(mergedSettings.ringColor).toBe("#FF5500");
 		expect(mergedSettings.ringAccentColor).toBe("#FFD080");
 		expect(mergedSettings.overlaySize).toBe(320);
-		expect(mergedSettings.ringThickness).toBe(14);
+		expect(mergedSettings.ringThickness).toBe(10);
 		expect(mergedSettings.cornerRoundness).toBe(18);
 		expect(mergedSettings.window).toEqual({
 			x: 160,
@@ -55,7 +55,7 @@ describe("Camlet settings schema", () => {
 		const mergedSettings = mergeCamletSettings({
 			ringColor: "green",
 			ringAccentColor: "pink",
-			ringThickness: 100,
+			ringThickness: "huge",
 			cornerRoundness: 400,
 			overlaySize: 10,
 			previewFitMode: "stretch",

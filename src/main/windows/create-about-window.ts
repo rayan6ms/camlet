@@ -12,10 +12,10 @@ export async function createAboutWindow({
 	rendererUrl,
 }: AboutWindowAssets): Promise<BrowserWindow> {
 	const window = new BrowserWindow({
-		width: 560,
-		height: 620,
-		minWidth: 460,
-		minHeight: 520,
+		width: 376,
+		height: 468,
+		minWidth: 344,
+		minHeight: 410,
 		show: false,
 		autoHideMenuBar: true,
 		backgroundColor: "#0B0F14",

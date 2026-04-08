@@ -75,8 +75,8 @@ describe("settings store integration", () => {
 		});
 
 		expect(nextSettings.overlaySize).toBe(280);
-		expect(nextSettings.ringThickness).toBe(14);
-		expect(adapter.writes.at(-1)?.ringThickness).toBe(14);
+		expect(nextSettings.ringThickness).toBe(10);
+		expect(adapter.writes.at(-1)?.ringThickness).toBe(10);
 	});
 
 	it("keeps serving in-memory settings when disk writes fail", () => {

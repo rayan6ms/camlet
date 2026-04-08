@@ -133,7 +133,8 @@ export interface RendererLocale {
 			circle: string;
 			roundedSquare: string;
 			diamond: string;
-			rectangle: string;
+			rectangleY: string;
+			rectangleX: string;
 		};
 		fitModes: {
 			cover: string;

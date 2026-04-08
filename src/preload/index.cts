@@ -6,7 +6,11 @@ import type {
 } from "../shared/ipc.js";
 import type { AppLanguage } from "../shared/language.js";
 import type { OverlayAppearanceSettingsPatch } from "../shared/settings.js";
-import type { ScreenPoint, WindowState } from "../shared/window-state.js";
+import type {
+	DisplayWorkArea,
+	ScreenPoint,
+	WindowState,
+} from "../shared/window-state.js";
 
 const { contextBridge, ipcRenderer } =
 	require("electron") as typeof import("electron");
@@ -23,6 +27,7 @@ const channels = {
 	endWindowDrag: "window:end-drag",
 	setWindowResizable: "window:set-resizable",
 	setWindowState: "window:set-state",
+	getCurrentDisplayWorkArea: "window:get-current-display-work-area",
 	getAboutInfo: "app:get-about-info",
 	openAboutWindow: "app:open-about-window",
 	updateContextMenuState: "app:update-context-menu-state",
@@ -50,6 +55,10 @@ const camletApi: CamletApi = Object.freeze({
 		ipcRenderer.invoke(channels.setWindowResizable, resizable),
 	setWindowState: (windowState: WindowState) =>
 		ipcRenderer.invoke(channels.setWindowState, windowState),
+	getCurrentDisplayWorkArea: () =>
+		ipcRenderer.invoke(
+			channels.getCurrentDisplayWorkArea,
+		) as Promise<DisplayWorkArea>,
 	getAboutInfo: () =>
 		ipcRenderer.invoke(channels.getAboutInfo) as Promise<AboutInfo>,
 	openAboutWindow: () => ipcRenderer.invoke(channels.openAboutWindow),

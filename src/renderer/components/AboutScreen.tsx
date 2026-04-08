@@ -17,6 +17,10 @@ export function AboutScreen({ bootstrap }: AboutScreenProps) {
 	const [aboutInfo, setAboutInfo] = useState<AboutInfo | null>(null);
 
 	useEffect(() => {
+		document.title = "About Camlet";
+	}, []);
+
+	useEffect(() => {
 		void window.camlet.getAboutInfo().then((nextInfo) => {
 			setAboutInfo(nextInfo);
 		});
@@ -26,7 +30,6 @@ export function AboutScreen({ bootstrap }: AboutScreenProps) {
 		return (
 			<section className="about-screen">
 				<div className="about-screen__content">
-					<h1 className="about-screen__title">{t("about.windowTitle")}</h1>
 					<p className="about-screen__description">
 						{t("camera.status.loading")}
 					</p>
@@ -38,7 +41,6 @@ export function AboutScreen({ bootstrap }: AboutScreenProps) {
 	return (
 		<section className="about-screen">
 			<div className="about-screen__content">
-				<h1 className="about-screen__title">{t("about.windowTitle")}</h1>
 				<p className="about-screen__description">{aboutInfo.description}</p>
 				<img
 					alt={aboutInfo.githubHandle}
@@ -65,10 +67,6 @@ export function AboutScreen({ bootstrap }: AboutScreenProps) {
 					<div>
 						<dt>{t("about.labels.channel")}</dt>
 						<dd>{t(`about.channels.${bootstrap.app.channel}`)}</dd>
-					</div>
-					<div>
-						<dt>{t("about.labels.mode")}</dt>
-						<dd>{t(`about.modes.${bootstrap.app.mode}`)}</dd>
 					</div>
 					<div>
 						<dt>{t("about.labels.packaged")}</dt>

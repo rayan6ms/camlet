@@ -175,7 +175,8 @@ export const deLocale: RendererLocale = {
 			circle: "Kreis",
 			roundedSquare: "Quadrat",
 			diamond: "Diamant",
-			rectangle: "Rechteck",
+			rectangleY: "Rechteck Y",
+			rectangleX: "Rechteck X",
 		},
 		fitModes: {
 			cover: "Füllen",

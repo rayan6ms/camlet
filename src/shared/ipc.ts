@@ -12,7 +12,11 @@ import type {
 	CamletSettings,
 	OverlayAppearanceSettingsPatch,
 } from "./settings.js";
-import type { ScreenPoint, WindowState } from "./window-state.js";
+import type {
+	DisplayWorkArea,
+	ScreenPoint,
+	WindowState,
+} from "./window-state.js";
 
 export interface CameraMenuOption {
 	deviceId: string;
@@ -50,7 +54,8 @@ export interface CamletContextMenuLabels {
 		circle: string;
 		roundedSquare: string;
 		diamond: string;
-		rectangle: string;
+		rectangleY: string;
+		rectangleX: string;
 	};
 	fitModeOptions: Record<PreviewFitMode, string>;
 	languageOptions: Record<AppLanguage, string>;
@@ -135,6 +140,7 @@ export const ipcChannels = {
 	endWindowDrag: "window:end-drag",
 	setWindowResizable: "window:set-resizable",
 	setWindowState: "window:set-state",
+	getCurrentDisplayWorkArea: "window:get-current-display-work-area",
 	getAboutInfo: "app:get-about-info",
 	openAboutWindow: "app:open-about-window",
 	updateContextMenuState: "app:update-context-menu-state",
@@ -157,6 +163,7 @@ export interface CamletApi {
 	endWindowDrag(): Promise<void>;
 	setWindowResizable(resizable: boolean): Promise<void>;
 	setWindowState(windowState: WindowState): Promise<WindowState>;
+	getCurrentDisplayWorkArea(): Promise<DisplayWorkArea>;
 	getAboutInfo(): Promise<AboutInfo>;
 	openAboutWindow(): Promise<void>;
 	updateContextMenuState(request: CamletContextMenuRequest): Promise<void>;

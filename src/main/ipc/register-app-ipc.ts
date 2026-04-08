@@ -16,6 +16,7 @@ import type { SettingsStoreService } from "../services/settings-store.js";
 import { applyMainWindowShape } from "../windows/window-shape.js";
 import {
 	createWindowDragOffset,
+	getCurrentDisplayWorkArea,
 	moveMainWindowWithPointer,
 	persistWindowStateNow,
 	setMainWindowState,
@@ -159,6 +160,11 @@ export function registerAppIpc(
 	ipcMain.handle(ipcChannels.setWindowState, (event, windowState: unknown) => {
 		const window = resolveWindow(event.sender);
 		return setMainWindowState(window, windowStateSchema.parse(windowState));
+	});
+
+	ipcMain.handle(ipcChannels.getCurrentDisplayWorkArea, (event) => {
+		const window = resolveWindow(event.sender);
+		return getCurrentDisplayWorkArea(window);
 	});
 
 	ipcMain.handle(

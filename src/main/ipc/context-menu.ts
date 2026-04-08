@@ -9,7 +9,7 @@ import type {
 	CamletContextMenuRequest,
 } from "../../shared/ipc.js";
 
-const ringThicknessOptions = [4, 8, 12, 16];
+const ringThicknessOptions = [0, 2, 4, 6, 8, 10];
 const cornerRoundnessOptions = [0, 12, 24, 36, 48, 60];
 const themeIds = [
 	"mint",
@@ -101,13 +101,24 @@ function createContextMenuTemplate(
 					},
 				},
 				{
-					label: request.labels.shapeOptions.rectangle,
+					label: request.labels.shapeOptions.rectangleY,
 					type: "radio",
-					checked: request.selectedShape === "rectangle",
+					checked: request.selectedShape === "rectangle-y",
 					click: () => {
 						sendContextMenuAction(window, {
 							type: "set-shape",
-							shape: "rectangle",
+							shape: "rectangle-y",
+						});
+					},
+				},
+				{
+					label: request.labels.shapeOptions.rectangleX,
+					type: "radio",
+					checked: request.selectedShape === "rectangle-x",
+					click: () => {
+						sendContextMenuAction(window, {
+							type: "set-shape",
+							shape: "rectangle-x",
 						});
 					},
 				},
