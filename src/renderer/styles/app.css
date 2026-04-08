@@ -8,6 +8,14 @@
 	box-sizing: border-box;
 }
 
+.camlet-button[hidden],
+.camlet-hint[hidden],
+.camlet-resize-banner[hidden],
+.camlet-status-card[hidden],
+.camlet-surface__ring[hidden] {
+	display: none;
+}
+
 html,
 body,
 #root {

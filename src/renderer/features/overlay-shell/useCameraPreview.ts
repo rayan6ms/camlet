@@ -1,4 +1,3 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react";
 import {
 	type CameraDeviceOption,
 	type CameraPreviewStatus,
@@ -9,7 +8,7 @@ import {
 	toCameraDeviceOptions,
 } from "./camera.js";
 
-interface CameraPreviewState {
+export interface CameraPreviewState {
 	status: CameraPreviewStatus;
 	devices: CameraDeviceOption[];
 	selectedDeviceId: string | null;
@@ -21,6 +20,15 @@ interface CameraPreviewState {
 
 interface UseCameraPreviewOptions {
 	initialSelectedDeviceId: string | null;
+}
+
+export interface CameraPreviewController {
+	attachVideoElement(element: HTMLVideoElement | null): void;
+	destroy(): void;
+	getState(): CameraPreviewState;
+	retry(): Promise<void>;
+	selectDevice(deviceId: string): Promise<void>;
+	subscribe(listener: (state: CameraPreviewState) => void): () => void;
 }
 
 function hasMediaDevicesApi() {
@@ -76,15 +84,16 @@ async function requestCameraStream(
 	};
 }
 
-export function useCameraPreview({
+export function createCameraPreviewController({
 	initialSelectedDeviceId,
-}: UseCameraPreviewOptions) {
-	const videoRef = useRef<HTMLVideoElement | null>(null);
-	const streamRef = useRef<MediaStream | null>(null);
-	const requestIdRef = useRef(0);
-	const selectedDeviceIdRef = useRef<string | null>(initialSelectedDeviceId);
-	const activeDeviceIdRef = useRef<string | null>(null);
-	const [state, setState] = useState<CameraPreviewState>({
+}: UseCameraPreviewOptions): CameraPreviewController {
+	let videoElement: HTMLVideoElement | null = null;
+	let stream: MediaStream | null = null;
+	let requestId = 0;
+	let selectedDeviceId = initialSelectedDeviceId;
+	let activeDeviceId: string | null = null;
+	let deviceChangeListener: (() => Promise<void>) | null = null;
+	let state: CameraPreviewState = {
 		status: "loading",
 		devices: [],
 		selectedDeviceId: initialSelectedDeviceId,
@@ -92,167 +101,169 @@ export function useCameraPreview({
 		activeDeviceLabel: null,
 		fallbackNotice: false,
 		errorMessage: null,
-	});
+	};
+	const listeners = new Set<(state: CameraPreviewState) => void>();
 
-	const stopStream = useEffectEvent(() => {
-		for (const track of streamRef.current?.getTracks() ?? []) {
+	function notifyListeners() {
+		for (const listener of listeners) {
+			listener(state);
+		}
+	}
+
+	function setState(
+		nextState:
+			| CameraPreviewState
+			| ((currentState: CameraPreviewState) => CameraPreviewState),
+	) {
+		state = typeof nextState === "function" ? nextState(state) : nextState;
+		notifyListeners();
+	}
+
+	function stopStream() {
+		for (const track of stream?.getTracks() ?? []) {
 			track.stop();
 		}
 
-		streamRef.current = null;
-		activeDeviceIdRef.current = null;
+		stream = null;
+		activeDeviceId = null;
 
-		if (videoRef.current !== null) {
-			videoRef.current.srcObject = null;
+		if (videoElement !== null) {
+			videoElement.srcObject = null;
 		}
-	});
+	}
 
-	const attachStream = useEffectEvent(async (stream: MediaStream) => {
-		streamRef.current = stream;
+	async function attachStream(nextStream: MediaStream) {
+		stream = nextStream;
 
-		if (videoRef.current === null) {
+		if (videoElement === null) {
 			return;
 		}
 
-		videoRef.current.srcObject = stream;
+		videoElement.srcObject = nextStream;
 
 		try {
-			await videoRef.current.play();
+			await videoElement.play();
 		} catch {}
-	});
+	}
 
-	const persistSelectedDeviceId = useEffectEvent(
-		async (deviceId: string | null) => {
-			selectedDeviceIdRef.current = deviceId;
-			const nextSettings =
-				await window.camlet.setSelectedCameraDeviceId(deviceId);
-			selectedDeviceIdRef.current = nextSettings.selectedCameraDeviceId;
-			return nextSettings.selectedCameraDeviceId;
-		},
-	);
+	async function persistSelectedDeviceId(deviceId: string | null) {
+		selectedDeviceId = deviceId;
+		const nextSettings =
+			await window.camlet.setSelectedCameraDeviceId(deviceId);
+		selectedDeviceId = nextSettings.selectedCameraDeviceId;
+		return nextSettings.selectedCameraDeviceId;
+	}
 
-	const refreshCamera = useEffectEvent(
-		async (requestedDeviceId: string | null) => {
-			if (!hasMediaDevicesApi()) {
-				setState((currentState) => ({
-					...currentState,
-					status: "error",
-					errorMessage:
-						"Media devices API is not available in this environment.",
-				}));
+	async function refreshCamera(requestedDeviceId: string | null) {
+		if (!hasMediaDevicesApi()) {
+			setState((currentState) => ({
+				...currentState,
+				status: "error",
+				errorMessage: "Media devices API is not available in this environment.",
+			}));
+			return;
+		}
+
+		const nextRequestId = requestId + 1;
+		requestId = nextRequestId;
+
+		setState((currentState) => ({
+			...currentState,
+			status: "loading",
+			selectedDeviceId: requestedDeviceId,
+			fallbackNotice: false,
+			errorMessage: null,
+		}));
+
+		stopStream();
+
+		try {
+			const { stream: nextStream, fallbackUsed } =
+				await requestCameraStream(requestedDeviceId);
+
+			if (nextRequestId !== requestId) {
+				for (const track of nextStream.getTracks()) {
+					track.stop();
+				}
+
 				return;
 			}
 
-			const requestId = requestIdRef.current + 1;
-			requestIdRef.current = requestId;
+			await attachStream(nextStream);
 
-			setState((currentState) => ({
-				...currentState,
-				status: "loading",
-				selectedDeviceId: requestedDeviceId,
-				fallbackNotice: false,
+			const devices = await enumerateCameraDevices();
+			const activeTrack = nextStream.getVideoTracks()[0];
+			const resolvedActiveDeviceId =
+				activeTrack?.getSettings().deviceId ??
+				resolveSelectedCameraDevice(devices, requestedDeviceId).deviceId;
+			const nextSelectedDeviceId = resolvedActiveDeviceId ?? requestedDeviceId;
+
+			activeDeviceId = resolvedActiveDeviceId ?? null;
+
+			if (
+				nextSelectedDeviceId !== null &&
+				nextSelectedDeviceId !== selectedDeviceId
+			) {
+				await persistSelectedDeviceId(nextSelectedDeviceId);
+			}
+
+			setState({
+				status: "preview",
+				devices,
+				selectedDeviceId: nextSelectedDeviceId,
+				activeDeviceId: resolvedActiveDeviceId ?? null,
+				activeDeviceLabel: getCameraDeviceLabel(
+					devices,
+					resolvedActiveDeviceId ?? null,
+				),
+				fallbackNotice: fallbackUsed,
 				errorMessage: null,
-			}));
+			});
+		} catch (error) {
+			if (nextRequestId !== requestId) {
+				return;
+			}
+
+			const devices = await enumerateCameraDevices().catch(() => []);
+			const failure = resolveCameraFailure(error, {
+				devices,
+				savedDeviceId: requestedDeviceId,
+			});
 
 			stopStream();
-
-			try {
-				const { stream, fallbackUsed } =
-					await requestCameraStream(requestedDeviceId);
-
-				if (requestId !== requestIdRef.current) {
-					for (const track of stream.getTracks()) {
-						track.stop();
-					}
-
-					return;
-				}
-
-				await attachStream(stream);
-
-				const devices = await enumerateCameraDevices();
-				const activeTrack = stream.getVideoTracks()[0];
-				const activeDeviceId =
-					activeTrack?.getSettings().deviceId ??
-					resolveSelectedCameraDevice(devices, requestedDeviceId).deviceId;
-				const nextSelectedDeviceId = activeDeviceId ?? requestedDeviceId;
-
-				activeDeviceIdRef.current = activeDeviceId ?? null;
-
-				if (
-					nextSelectedDeviceId !== null &&
-					nextSelectedDeviceId !== selectedDeviceIdRef.current
-				) {
-					await persistSelectedDeviceId(nextSelectedDeviceId);
-				}
-
-				setState({
-					status: "preview",
-					devices,
-					selectedDeviceId: nextSelectedDeviceId,
-					activeDeviceId: activeDeviceId ?? null,
-					activeDeviceLabel: getCameraDeviceLabel(
-						devices,
-						activeDeviceId ?? null,
-					),
-					fallbackNotice: fallbackUsed,
-					errorMessage: null,
-				});
-			} catch (error) {
-				if (requestId !== requestIdRef.current) {
-					return;
-				}
-
-				const devices = await enumerateCameraDevices().catch(() => []);
-				const failure = resolveCameraFailure(error, {
-					devices,
-					savedDeviceId: requestedDeviceId,
-				});
-
-				stopStream();
-				setState({
-					status: failure.status,
-					devices,
-					selectedDeviceId: requestedDeviceId,
-					activeDeviceId: null,
-					activeDeviceLabel: null,
-					fallbackNotice: false,
-					errorMessage: failure.errorMessage,
-				});
-			}
-		},
-	);
-
-	useEffect(() => {
-		void refreshCamera(selectedDeviceIdRef.current);
-
-		if (!hasDeviceChangeEvents()) {
-			return () => {
-				requestIdRef.current += 1;
-				stopStream();
-			};
+			setState({
+				status: failure.status,
+				devices,
+				selectedDeviceId: requestedDeviceId,
+				activeDeviceId: null,
+				activeDeviceLabel: null,
+				fallbackNotice: false,
+				errorMessage: failure.errorMessage,
+			});
 		}
+	}
 
-		const handleDeviceChange = async () => {
+	void refreshCamera(selectedDeviceId);
+
+	if (hasDeviceChangeEvents()) {
+		deviceChangeListener = async () => {
 			const devices = await enumerateCameraDevices().catch(() => []);
-			const activeDeviceId = activeDeviceIdRef.current;
-			const savedDeviceId = selectedDeviceIdRef.current;
 			const hasActiveDevice = devices.some(
 				(device) => device.deviceId === activeDeviceId,
 			);
 			const hasSavedDevice = devices.some(
-				(device) => device.deviceId === savedDeviceId,
+				(device) => device.deviceId === selectedDeviceId,
 			);
 
 			if (devices.length === 0) {
 				stopStream();
 				setState({
 					status:
-						savedDeviceId !== null
+						selectedDeviceId !== null
 							? "selected-device-unavailable"
 							: "no-camera",
 					devices,
-					selectedDeviceId: savedDeviceId,
+					selectedDeviceId,
 					activeDeviceId: null,
 					activeDeviceLabel: null,
 					fallbackNotice: false,
@@ -261,7 +272,7 @@ export function useCameraPreview({
 				return;
 			}
 
-			if (hasActiveDevice && (savedDeviceId === null || hasSavedDevice)) {
+			if (hasActiveDevice && (selectedDeviceId === null || hasSavedDevice)) {
 				setState((currentState) => ({
 					...currentState,
 					devices,
@@ -270,29 +281,54 @@ export function useCameraPreview({
 				return;
 			}
 
-			const resolution = resolveSelectedCameraDevice(devices, savedDeviceId);
-			void refreshCamera(resolution.deviceId);
+			const resolution = resolveSelectedCameraDevice(devices, selectedDeviceId);
+			await refreshCamera(resolution.deviceId);
 		};
 
-		navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
-
-		return () => {
-			navigator.mediaDevices.removeEventListener(
-				"devicechange",
-				handleDeviceChange,
-			);
-			requestIdRef.current += 1;
-			stopStream();
-		};
-	}, []);
+		navigator.mediaDevices.addEventListener(
+			"devicechange",
+			deviceChangeListener,
+		);
+	}
 
 	return {
-		videoRef,
-		state,
-		retry: () => refreshCamera(selectedDeviceIdRef.current),
+		attachVideoElement(element) {
+			videoElement = element;
+
+			if (videoElement === null || stream === null) {
+				return;
+			}
+
+			videoElement.srcObject = stream;
+			void videoElement.play().catch(() => {});
+		},
+		destroy() {
+			if (deviceChangeListener !== null) {
+				navigator.mediaDevices.removeEventListener(
+					"devicechange",
+					deviceChangeListener,
+				);
+			}
+
+			requestId += 1;
+			stopStream();
+			listeners.clear();
+		},
+		getState() {
+			return state;
+		},
+		retry() {
+			return refreshCamera(selectedDeviceId);
+		},
 		selectDevice: async (deviceId: string) => {
 			const nextSelectedDeviceId = await persistSelectedDeviceId(deviceId);
 			await refreshCamera(nextSelectedDeviceId);
+		},
+		subscribe(listener) {
+			listeners.add(listener);
+			return () => {
+				listeners.delete(listener);
+			};
 		},
 	};
 }
