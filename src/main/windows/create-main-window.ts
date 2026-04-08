@@ -168,6 +168,7 @@ export async function createMainWindow({
 		minHeight: minimumWindowHeight,
 		frame: false,
 		transparent: true,
+		hasShadow: false,
 		alwaysOnTop: true,
 		resizable: false,
 		maximizable: false,
@@ -189,6 +190,7 @@ export async function createMainWindow({
 	});
 
 	window.setAspectRatio(1);
+	window.setHasShadow(false);
 	window.setVisibleOnAllWorkspaces(true, {
 		visibleOnFullScreen: true,
 	});
