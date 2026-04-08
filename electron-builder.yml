@@ -21,6 +21,7 @@ linux:
   category: Utility
   executableName: camlet
   executableArgs:
+    - --no-sandbox
     - --ozone-platform=x11
   icon: icons
   artifactName: ${productName}-${version}-linux-${arch}.${ext}

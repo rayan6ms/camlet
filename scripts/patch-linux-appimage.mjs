@@ -64,7 +64,7 @@ NUMBER_OF_ARGS="$#"
 
 if [ -z "$APPDIR" ] ; then
   path="$(dirname "$(readlink -f "\${THIS}")")"
-  while [[ "$path" != "" && ! -e "$path/$1" ]]; do
+  while [[ "$path" != "" && ! -e "$path/AppRun" ]]; do
     path=\${path%/*}
   done
   APPDIR="$path"
@@ -84,39 +84,40 @@ fi
 
 isEulaAccepted=1
 
-resolve_default_ozone_arg()
+has_argument()
 {
-  if [ "$CAMLET_PREFER_WAYLAND" = "1" ] ; then
-    return 1
-  fi
-
-  if [ -z "$DISPLAY" ] ; then
-    return 1
-  fi
-
   for arg in "\${args[@]}"; do
-    if [ "$arg" = "--ozone-platform" ] || [[ "$arg" == --ozone-platform=* ]] ; then
-      return 1
+    if [ "$arg" = "$1" ] || [[ "$arg" == "$1="* ]] ; then
+      return 0
     fi
   done
 
-  echo "--ozone-platform=x11"
+  return 1
 }
 
 atexit()
 {
   if [ $isEulaAccepted == 1 ] ; then
-    OZONE_ARG="$(resolve_default_ozone_arg || true)"
-    if [ -n "$OZONE_ARG" ] ; then
-      if [ $NUMBER_OF_ARGS -eq 0 ] ; then
-        exec "$BIN" "$OZONE_ARG"
+    extra_args=()
+
+    if ! has_argument "--no-sandbox" && ! has_argument "--enable-sandbox" ; then
+      extra_args+=("--no-sandbox")
+    fi
+
+    if [ "$CAMLET_PREFER_WAYLAND" != "1" ] && [ -n "$DISPLAY" ] && ! has_argument "--ozone-platform" ; then
+      extra_args+=("--ozone-platform=x11")
+    fi
+
+    if [ $NUMBER_OF_ARGS -eq 0 ] ; then
+      if [ \${#extra_args[@]} -eq 0 ] ; then
+        exec "$BIN"
       else
-        exec "$BIN" "$OZONE_ARG" "\${args[@]}"
+        exec "$BIN" "\${extra_args[@]}"
       fi
-    elif [ $NUMBER_OF_ARGS -eq 0 ] ; then
+    elif [ \${#extra_args[@]} -eq 0 ] ; then
       exec "$BIN"
     else
-      exec "$BIN" "\${args[@]}"
+      exec "$BIN" "\${extra_args[@]}" "\${args[@]}"
     fi
   fi
 }
