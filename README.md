@@ -1,6 +1,6 @@
 # Camlet
 
-![Camlet icon](./assets/icon.svg)
+![Camlet icon](./assets/icons/256x256.png)
 
 Camlet is a lightweight floating webcam app for desktop. It stays on top, keeps a clean transparent shell, and lets you quickly place your camera overlay where you want it by dragging it with the left mouse button.
 Use the right mouse button anywhere inside it to show more options.
