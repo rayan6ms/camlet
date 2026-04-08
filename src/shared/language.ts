@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { enumSchema } from "./validation.js";
 
 export const supportedLanguages = [
 	"en",
@@ -11,11 +11,11 @@ export const supportedLanguages = [
 ] as const;
 export const appLanguages = ["system", ...supportedLanguages] as const;
 
-export const supportedLanguageSchema = z.enum(supportedLanguages);
-export const appLanguageSchema = z.enum(appLanguages);
+export type SupportedLanguage = (typeof supportedLanguages)[number];
+export type AppLanguage = (typeof appLanguages)[number];
 
-export type SupportedLanguage = z.infer<typeof supportedLanguageSchema>;
-export type AppLanguage = z.infer<typeof appLanguageSchema>;
+export const supportedLanguageSchema = enumSchema(supportedLanguages);
+export const appLanguageSchema = enumSchema(appLanguages);
 
 export const fallbackLanguage: SupportedLanguage = "en";
 export const defaultAppLanguage: AppLanguage = "system";

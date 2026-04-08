@@ -1,4 +1,3 @@
-import { z } from "zod";
 import {
 	cornerRoundnessSchema,
 	defaultOverlayAppearanceSettings,
@@ -14,7 +13,19 @@ import {
 	ringColorSchema,
 	ringThicknessSchema,
 } from "./appearance.js";
-import { appLanguageSchema, defaultAppLanguage, isRecord } from "./language.js";
+import {
+	type AppLanguage,
+	appLanguageSchema,
+	defaultAppLanguage,
+	isRecord,
+} from "./language.js";
+import {
+	nullableSchema,
+	numberSchema,
+	objectSchema,
+	type Schema,
+	stringSchema,
+} from "./validation.js";
 import {
 	defaultWindowState,
 	mergeWindowState,
@@ -23,9 +34,24 @@ import {
 	type WindowState,
 } from "./window-state.js";
 
-const selectedCameraDeviceIdSchema = z.string().min(1).nullable();
+const selectedCameraDeviceIdSchema = nullableSchema(
+	stringSchema({ minLength: 1 }),
+);
 
-export const camletSettingsSchema = z.object({
+export interface CamletSettings {
+	language: AppLanguage;
+	selectedCameraDeviceId: string | null;
+	overlayShape: OverlayAppearanceSettings["overlayShape"];
+	overlaySize: number;
+	ringColor: string;
+	ringAccentColor: string;
+	ringThickness: number;
+	cornerRoundness: number;
+	previewFitMode: OverlayAppearanceSettings["previewFitMode"];
+	window: WindowState;
+}
+
+export const camletSettingsSchema = objectSchema({
 	language: appLanguageSchema,
 	selectedCameraDeviceId: selectedCameraDeviceIdSchema,
 	overlayShape: overlayShapeSchema,
@@ -35,11 +61,11 @@ export const camletSettingsSchema = z.object({
 	ringThickness: ringThicknessSchema,
 	cornerRoundness: cornerRoundnessSchema,
 	previewFitMode: previewFitModeSchema,
-	window: z.object({
-		x: z.number().int(),
-		y: z.number().int(),
-		width: z.number().int().min(minimumWindowWidth),
-		height: z.number().int().min(minimumWindowHeight),
+	window: objectSchema({
+		x: numberSchema({ integer: true }),
+		y: numberSchema({ integer: true }),
+		width: numberSchema({ integer: true, min: minimumWindowWidth }),
+		height: numberSchema({ integer: true, min: minimumWindowHeight }),
 	}),
 });
 
@@ -53,7 +79,6 @@ export const overlayAppearanceSettingsKeys = [
 	"previewFitMode",
 ] as const;
 
-export type CamletSettings = z.infer<typeof camletSettingsSchema>;
 export type CamletSettingsPatch = Partial<Omit<CamletSettings, "window">> & {
 	window?: Partial<WindowState>;
 };
@@ -66,7 +91,7 @@ export const defaultCamletSettings: CamletSettings = {
 };
 
 function parseWithFallback<T>(
-	schema: z.ZodType<T>,
+	schema: Schema<T>,
 	value: unknown,
 	fallback: T,
 ): T {

@@ -1,5 +1,5 @@
-import { z } from "zod";
 import { isRecord } from "./language.js";
+import { numberSchema, objectSchema, type Schema } from "./validation.js";
 
 export const minimumWindowWidth = 176;
 export const minimumWindowHeight = 176;
@@ -9,21 +9,39 @@ export const defaultWindowState = {
 	width: 224,
 	height: 224,
 } as const;
-
-export const screenPointSchema = z.object({
-	screenX: z.number().int(),
-	screenY: z.number().int(),
+const windowCoordinateSchema = numberSchema({ integer: true });
+const windowWidthSchema = numberSchema({
+	integer: true,
+	min: minimumWindowWidth,
+});
+const windowHeightSchema = numberSchema({
+	integer: true,
+	min: minimumWindowHeight,
 });
 
-export const windowStateSchema = z.object({
-	x: z.number().int(),
-	y: z.number().int(),
-	width: z.number().int().min(minimumWindowWidth),
-	height: z.number().int().min(minimumWindowHeight),
+export interface ScreenPoint {
+	screenX: number;
+	screenY: number;
+}
+
+export interface WindowState {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+export const screenPointSchema = objectSchema({
+	screenX: windowCoordinateSchema,
+	screenY: windowCoordinateSchema,
 });
 
-export type ScreenPoint = z.infer<typeof screenPointSchema>;
-export type WindowState = z.infer<typeof windowStateSchema>;
+export const windowStateSchema = objectSchema({
+	x: windowCoordinateSchema,
+	y: windowCoordinateSchema,
+	width: windowWidthSchema,
+	height: windowHeightSchema,
+});
 
 export interface DisplayWorkArea {
 	x: number;
@@ -32,11 +50,11 @@ export interface DisplayWorkArea {
 	height: number;
 }
 
-export const displayWorkAreaSchema = z.object({
-	x: z.number().int(),
-	y: z.number().int(),
-	width: z.number().int().min(1),
-	height: z.number().int().min(1),
+export const displayWorkAreaSchema = objectSchema({
+	x: windowCoordinateSchema,
+	y: windowCoordinateSchema,
+	width: numberSchema({ integer: true, min: 1 }),
+	height: numberSchema({ integer: true, min: 1 }),
 });
 
 export interface DragOffset {
@@ -61,7 +79,7 @@ function roundWindowState(state: WindowState): WindowState {
 }
 
 function parseWindowStateValue<T>(
-	schema: z.ZodType<T>,
+	schema: Schema<T>,
 	value: unknown,
 	fallback: T,
 ): T {
@@ -75,15 +93,23 @@ export function mergeWindowState(value: unknown): WindowState {
 	}
 
 	return roundWindowState({
-		x: parseWindowStateValue(z.number().int(), value.x, defaultWindowState.x),
-		y: parseWindowStateValue(z.number().int(), value.y, defaultWindowState.y),
+		x: parseWindowStateValue(
+			windowCoordinateSchema,
+			value.x,
+			defaultWindowState.x,
+		),
+		y: parseWindowStateValue(
+			windowCoordinateSchema,
+			value.y,
+			defaultWindowState.y,
+		),
 		width: parseWindowStateValue(
-			z.number().int().min(minimumWindowWidth),
+			windowWidthSchema,
 			value.width,
 			defaultWindowState.width,
 		),
 		height: parseWindowStateValue(
-			z.number().int().min(minimumWindowHeight),
+			windowHeightSchema,
 			value.height,
 			defaultWindowState.height,
 		),

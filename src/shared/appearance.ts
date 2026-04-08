@@ -1,22 +1,61 @@
-import { z } from "zod";
+import {
+	enumSchema,
+	numberSchema,
+	objectSchema,
+	partialObjectSchema,
+	stringSchema,
+} from "./validation.js";
 
 const hexColorPattern = /^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
-
-export const overlayShapeSchema = z.enum([
+const minimumOverlaySize = 96;
+const maximumOverlaySize = 640;
+const minimumRingThickness = 0;
+const maximumRingThickness = 10;
+const minimumCornerRoundness = 0;
+const maximumCornerRoundness = 72;
+const overlayShapeValues = [
 	"circle",
 	"rounded-square",
 	"diamond",
 	"rectangle-y",
 	"rectangle-x",
-]);
-export const previewFitModeSchema = z.enum(["cover", "contain"]);
-export const overlaySizeSchema = z.number().int().min(96).max(640);
-export const ringColorSchema = z.string().regex(hexColorPattern);
-export const ringAccentColorSchema = z.string().regex(hexColorPattern);
-export const ringThicknessSchema = z.number().int().min(0).max(10);
-export const cornerRoundnessSchema = z.number().int().min(0).max(72);
+] as const;
+const previewFitModeValues = ["cover", "contain"] as const;
 
-export const overlayAppearanceSettingsSchema = z.object({
+export type OverlayShape = (typeof overlayShapeValues)[number];
+export type PreviewFitMode = (typeof previewFitModeValues)[number];
+export interface OverlayAppearanceSettings {
+	overlayShape: OverlayShape;
+	overlaySize: number;
+	ringColor: string;
+	ringAccentColor: string;
+	ringThickness: number;
+	cornerRoundness: number;
+	previewFitMode: PreviewFitMode;
+}
+export type OverlayAppearanceSettingsPatch = Partial<OverlayAppearanceSettings>;
+
+export const overlayShapeSchema = enumSchema(overlayShapeValues);
+export const previewFitModeSchema = enumSchema(previewFitModeValues);
+export const overlaySizeSchema = numberSchema({
+	integer: true,
+	min: minimumOverlaySize,
+	max: maximumOverlaySize,
+});
+export const ringColorSchema = stringSchema({ pattern: hexColorPattern });
+export const ringAccentColorSchema = stringSchema({ pattern: hexColorPattern });
+export const ringThicknessSchema = numberSchema({
+	integer: true,
+	min: minimumRingThickness,
+	max: maximumRingThickness,
+});
+export const cornerRoundnessSchema = numberSchema({
+	integer: true,
+	min: minimumCornerRoundness,
+	max: maximumCornerRoundness,
+});
+
+export const overlayAppearanceSettingsSchema = objectSchema({
 	overlayShape: overlayShapeSchema,
 	overlaySize: overlaySizeSchema,
 	ringColor: ringColorSchema,
@@ -26,17 +65,15 @@ export const overlayAppearanceSettingsSchema = z.object({
 	previewFitMode: previewFitModeSchema,
 });
 
-export const overlayAppearanceSettingsPatchSchema =
-	overlayAppearanceSettingsSchema.partial();
-
-export type OverlayShape = z.infer<typeof overlayShapeSchema>;
-export type PreviewFitMode = z.infer<typeof previewFitModeSchema>;
-export type OverlayAppearanceSettings = z.infer<
-	typeof overlayAppearanceSettingsSchema
->;
-export type OverlayAppearanceSettingsPatch = z.infer<
-	typeof overlayAppearanceSettingsPatchSchema
->;
+export const overlayAppearanceSettingsPatchSchema = partialObjectSchema({
+	overlayShape: overlayShapeSchema,
+	overlaySize: overlaySizeSchema,
+	ringColor: ringColorSchema,
+	ringAccentColor: ringAccentColorSchema,
+	ringThickness: ringThicknessSchema,
+	cornerRoundness: cornerRoundnessSchema,
+	previewFitMode: previewFitModeSchema,
+});
 
 export const defaultOverlayAppearanceSettings: OverlayAppearanceSettings = {
 	overlayShape: "circle",
@@ -52,8 +89,8 @@ const ringThicknessOptions = [0, 2, 4, 6, 8, 10] as const;
 
 export function normalizeRingThickness(ringThickness: number): number {
 	const roundedValue = Math.min(
-		ringThicknessSchema.maxValue ?? 10,
-		Math.max(ringThicknessSchema.minValue ?? 0, Math.round(ringThickness)),
+		maximumRingThickness,
+		Math.max(minimumRingThickness, Math.round(ringThickness)),
 	);
 
 	return ringThicknessOptions.reduce((closest, option) =>

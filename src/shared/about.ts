@@ -1,14 +1,23 @@
-import { z } from "zod";
+import { arraySchema, objectSchema, stringSchema } from "./validation.js";
 
-export const aboutInfoSchema = z.object({
-	description: z.string().trim().min(1),
-	scope: z.array(z.string().trim().min(1)),
-	license: z.string().trim().min(1),
-	githubHandle: z.string().trim().min(1),
-	githubUrl: z.string().url(),
-	projectUrl: z.string().url(),
-	projectIssuesUrl: z.string().url(),
-	avatarDataUrl: z.string().trim().min(1),
+export interface AboutInfo {
+	description: string;
+	scope: string[];
+	license: string;
+	githubHandle: string;
+	githubUrl: string;
+	projectUrl: string;
+	projectIssuesUrl: string;
+	avatarDataUrl: string;
+}
+
+export const aboutInfoSchema = objectSchema({
+	description: stringSchema({ trim: true, minLength: 1 }),
+	scope: arraySchema(stringSchema({ trim: true, minLength: 1 })),
+	license: stringSchema({ trim: true, minLength: 1 }),
+	githubHandle: stringSchema({ trim: true, minLength: 1 }),
+	githubUrl: stringSchema({ url: true }),
+	projectUrl: stringSchema({ url: true }),
+	projectIssuesUrl: stringSchema({ url: true }),
+	avatarDataUrl: stringSchema({ trim: true, minLength: 1 }),
 });
-
-export type AboutInfo = z.infer<typeof aboutInfoSchema>;
