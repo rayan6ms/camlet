@@ -4,17 +4,7 @@ import {
 	resolveSupportedLanguage,
 	type SupportedLanguage,
 } from "../shared/language.js";
-import { rendererLocales } from "./locales/index.js";
-
-const resources = Object.fromEntries(
-	Object.entries(rendererLocales).map(([language, translation]) => [
-		language,
-		{ translation },
-	]),
-) as Record<
-	SupportedLanguage,
-	{ translation: (typeof rendererLocales)[SupportedLanguage] }
->;
+import { loadRendererLocale } from "./locales/load.js";
 
 let initialized = false;
 
@@ -22,10 +12,40 @@ function getResolvedLanguage(language?: string): SupportedLanguage {
 	return resolveSupportedLanguage(language);
 }
 
+async function ensureLocaleLoaded(language: SupportedLanguage) {
+	if (i18next.hasResourceBundle(language, "translation")) {
+		return;
+	}
+
+	const translation = await loadRendererLocale(language);
+	i18next.addResourceBundle(language, "translation", translation, true, true);
+}
+
+async function loadInitialResources(language: SupportedLanguage) {
+	const primaryTranslation = await loadRendererLocale(language);
+
+	if (language === fallbackLanguage) {
+		return {
+			[language]: {
+				translation: primaryTranslation,
+			},
+		};
+	}
+
+	return {
+		[fallbackLanguage]: {
+			translation: await loadRendererLocale(fallbackLanguage),
+		},
+		[language]: {
+			translation: primaryTranslation,
+		},
+	};
+}
+
 export async function initializeI18n(language: SupportedLanguage) {
 	if (!initialized) {
 		await i18next.init({
-			resources,
+			resources: await loadInitialResources(language),
 			lng: language,
 			fallbackLng: fallbackLanguage,
 			interpolation: {
@@ -37,6 +57,8 @@ export async function initializeI18n(language: SupportedLanguage) {
 		return;
 	}
 
+	await ensureLocaleLoaded(fallbackLanguage);
+	await ensureLocaleLoaded(language);
 	await i18next.changeLanguage(language);
 }
 

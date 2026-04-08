@@ -100,4 +100,42 @@ describe("main-process security helpers", () => {
 			}),
 		).toBe(true);
 	});
+
+	it("denies microphone-capable media requests", () => {
+		const developmentPolicy = {
+			rendererHtmlPath,
+			rendererUrl: "http://localhost:5173/",
+		};
+
+		expect(
+			shouldAllowPermission(
+				"media",
+				"http://localhost:5173/",
+				developmentPolicy,
+				{
+					mediaTypes: ["video"],
+				},
+			),
+		).toBe(true);
+		expect(
+			shouldAllowPermission(
+				"media",
+				"http://localhost:5173/",
+				developmentPolicy,
+				{
+					mediaTypes: ["audio"],
+				},
+			),
+		).toBe(false);
+		expect(
+			shouldAllowPermission(
+				"media",
+				"http://localhost:5173/",
+				developmentPolicy,
+				{
+					mediaTypes: ["video", "audio"],
+				},
+			),
+		).toBe(false);
+	});
 });

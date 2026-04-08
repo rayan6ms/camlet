@@ -3,6 +3,10 @@ import {
 	baseRendererLocale,
 	rendererLocales,
 } from "../../src/renderer/locales/index.js";
+import {
+	loadRendererLocale,
+	rendererLocaleLoaders,
+} from "../../src/renderer/locales/load.js";
 import { getLocaleShapeComparison } from "../../src/renderer/locales/validation.js";
 import {
 	type SupportedLanguage,
@@ -12,6 +16,7 @@ import {
 describe("renderer locale registry", () => {
 	it("stays aligned with the supported language list", () => {
 		expect(Object.keys(rendererLocales)).toEqual(supportedLanguages);
+		expect(Object.keys(rendererLocaleLoaders)).toEqual(supportedLanguages);
 	});
 
 	it("keeps every locale structurally aligned with English", () => {
@@ -36,6 +41,14 @@ describe("renderer locale registry", () => {
 			) as Array<"system" | SupportedLanguage>;
 
 			expect(optionKeys).toEqual(["system", ...supportedLanguages]);
+		}
+	});
+
+	it("loads each locale through the async loader", async () => {
+		for (const language of supportedLanguages) {
+			await expect(loadRendererLocale(language)).resolves.toEqual(
+				rendererLocales[language],
+			);
 		}
 	});
 });

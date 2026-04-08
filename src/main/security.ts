@@ -7,6 +7,10 @@ export interface RendererAssetPolicy {
 	rendererUrl?: string;
 }
 
+interface PermissionRequestOptions {
+	mediaTypes?: readonly ("video" | "audio")[];
+}
+
 export function createRendererAssetPolicy(
 	rendererHtmlPath: string,
 	rendererUrl?: string,
@@ -106,6 +110,7 @@ export function shouldAllowPermission(
 	permission: string,
 	requestingUrl: string,
 	policy: RendererAssetPolicy,
+	options: PermissionRequestOptions = {},
 ): boolean {
 	const parsedUrl = tryParseUrl(requestingUrl);
 	const isPackagedFileOrigin =
@@ -115,7 +120,18 @@ export function shouldAllowPermission(
 		return false;
 	}
 
-	return permission === "media";
+	if (permission !== "media") {
+		return false;
+	}
+
+	if (options.mediaTypes === undefined) {
+		return true;
+	}
+
+	return (
+		options.mediaTypes.includes("video") &&
+		!options.mediaTypes.includes("audio")
+	);
 }
 
 export function configureSessionSecurity(
@@ -133,6 +149,11 @@ export function configureSessionSecurity(
 					permission,
 					details.requestingUrl || webContents.getURL(),
 					policy,
+					"mediaTypes" in details
+						? {
+								mediaTypes: details.mediaTypes,
+							}
+						: undefined,
 				),
 			);
 		},
