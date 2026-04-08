@@ -174,9 +174,4 @@ export interface CamletApi {
 	onWindowStateChange(listener: (windowState: WindowState) => void): () => void;
 }
 
-export type {
-	AppBootstrap,
-	AppInfo,
-	AppReleaseChannel,
-	AppRuntimeMode,
-};
+export type { AppBootstrap, AppInfo, AppReleaseChannel, AppRuntimeMode };

@@ -125,10 +125,6 @@ describe("language helpers", () => {
 	});
 
 	it("keeps the language selector order stable", () => {
-		expect(selectableAppLanguages).toEqual([
-			"system",
-			"en",
-			"pt-BR",
-		]);
+		expect(selectableAppLanguages).toEqual(["system", "en", "pt-BR"]);
 	});
 });

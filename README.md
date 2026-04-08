@@ -48,6 +48,7 @@ pnpm install
 - `pnpm package:linux`: builds a Linux AppImage into `release/`
 - `pnpm package:win`: builds a Windows NSIS installer into `release/`
 - `pnpm dist`: alias for `pnpm package`
+- `pnpm icons:generate`: regenerates `assets/icons/*` and `assets/icon.ico` from `assets/icon.svg`
 - `pnpm check`: runs `biome check`
 - `pnpm format`: runs `biome format --write`
 - `pnpm clean`: removes generated build and cache output

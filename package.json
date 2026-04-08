@@ -26,6 +26,7 @@
 		"package:linux": "pnpm build && electron-builder --config electron-builder.yml --linux AppImage --publish never",
 		"package:win": "pnpm build && electron-builder --config electron-builder.yml --win nsis --publish never",
 		"dist": "pnpm package",
+		"icons:generate": "node ./scripts/generate-icons.mjs",
 		"check": "biome check .",
 		"format": "biome format --write ."
 	},

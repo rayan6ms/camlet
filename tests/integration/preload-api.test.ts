@@ -1,6 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
 import type { IpcRendererEvent } from "electron";
-import { ipcChannels } from "../../src/shared/ipc.js";
+import { describe, expect, it, vi } from "vitest";
 import type { AboutInfo } from "../../src/shared/about.js";
 import type {
 	AppBootstrap,
@@ -8,6 +7,7 @@ import type {
 	CamletContextMenuAction,
 	CamletContextMenuRequest,
 } from "../../src/shared/ipc.js";
+import { ipcChannels } from "../../src/shared/ipc.js";
 import type { AppLanguage } from "../../src/shared/language.js";
 import type {
 	CamletSettings,

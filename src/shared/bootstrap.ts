@@ -3,7 +3,6 @@ import { isPrereleaseVersion } from "./release.js";
 import type { CamletSettings } from "./settings.js";
 import { camletSettingsSchema } from "./settings.js";
 import {
-	arraySchema,
 	booleanSchema,
 	enumSchema,
 	objectSchema,
