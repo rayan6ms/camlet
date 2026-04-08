@@ -251,7 +251,7 @@ textarea {
 }
 
 .camlet-surface--ringless-native-shape .camlet-surface__video {
-	clip-path: none;
+	clip-path: var(--camlet-inner-clip-path);
 }
 
 .camlet-surface__ring {

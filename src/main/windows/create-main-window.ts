@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { BrowserWindow } from "electron/main";
 import type { OverlayAppearanceSettings } from "../../shared/appearance.js";
 import {
@@ -148,6 +149,52 @@ function maintainAlwaysOnTop(window: BrowserWindow) {
 	reassertAlwaysOnTop();
 }
 
+function isRetryableDevRendererLoadError(error: unknown): boolean {
+	if (!(error instanceof Error)) {
+		return false;
+	}
+
+	const code =
+		typeof Reflect.get(error, "code") === "string"
+			? Reflect.get(error, "code")
+			: null;
+
+	return code === "ERR_FAILED" || code === "ERR_CONNECTION_REFUSED";
+}
+
+async function loadDevRendererUrl(
+	window: BrowserWindow,
+	rendererUrl: string,
+	retryDelayMs = 250,
+	maxAttempts = 20,
+) {
+	let lastError: unknown;
+
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			await window.loadURL(rendererUrl);
+			return;
+		} catch (error) {
+			lastError = error;
+
+			if (
+				window.isDestroyed() ||
+				attempt === maxAttempts ||
+				!isRetryableDevRendererLoadError(error)
+			) {
+				throw error;
+			}
+
+			console.warn(
+				`[camlet:window] renderer load attempt ${attempt} failed, retrying in ${retryDelayMs}ms`,
+			);
+			await delay(retryDelayMs);
+		}
+	}
+
+	throw lastError;
+}
+
 export async function createMainWindow({
 	appearance,
 	preloadPath,
@@ -212,7 +259,7 @@ export async function createMainWindow({
 	});
 
 	if (rendererUrl !== undefined) {
-		await window.loadURL(rendererUrl);
+		await loadDevRendererUrl(window, rendererUrl);
 		return window;
 	}
 
