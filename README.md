@@ -1,9 +1,17 @@
-# Camlet
+<!-- markdownlint-disable MD033 MD041 -->
+<p align="center">
+  <img src="./assets/icons/48x48.png" alt="Camlet icon" width="48" height="48">
+</p>
 
-![Camlet icon](./assets/icons/256x256.png)
+<h1 align="center">Camlet</h1>
 
-Camlet is a lightweight floating webcam app for desktop. It stays on top, keeps a clean transparent shell, and lets you quickly place your camera overlay where you want it by dragging it with the left mouse button.
-Use the right mouse button anywhere inside it to show more options.
+<p align="center">
+  Camlet is a lightweight floating webcam app for desktop. It stays on top, keeps a clean transparent shell, and lets you quickly place your camera overlay where you want it by dragging it with the left mouse button.
+</p>
+<p align="center">
+  Use the right mouse button anywhere inside it to show more options.
+</p>
+<!-- markdownlint-enable MD033 MD041 -->
 
 ## Features
 
