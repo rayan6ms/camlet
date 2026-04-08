@@ -49,8 +49,6 @@ interface ThemePreset {
 }
 
 const startupHintTimeoutMs = 2600;
-const moveStep = 1;
-const moveStepLarge = 24;
 const themePresets: ThemePreset[] = [
 	{
 		id: "mint",
@@ -492,15 +490,6 @@ export function createOverlayShellScreen({
 		render();
 	}
 
-	async function moveByStep(deltaX: number, deltaY: number) {
-		windowState = await window.camlet.setWindowState({
-			...windowState,
-			x: windowState.x + deltaX,
-			y: windowState.y + deltaY,
-		});
-		render();
-	}
-
 	function openContextMenu() {
 		showStartupHint = false;
 		render();
@@ -566,57 +555,6 @@ export function createOverlayShellScreen({
 		}
 	}
 
-	function handleKeyboardShortcut(event: KeyboardEvent) {
-		if (
-			!document.hasFocus() ||
-			event.defaultPrevented ||
-			event.altKey ||
-			event.ctrlKey ||
-			event.metaKey
-		) {
-			return;
-		}
-
-		const target = event.target;
-		if (
-			target instanceof HTMLElement &&
-			target.closest("input, textarea, select")
-		) {
-			return;
-		}
-
-		const keyboardMoveStep = event.shiftKey ? moveStepLarge : moveStep;
-
-		switch (event.code) {
-			case "ArrowUp":
-				event.preventDefault();
-				void moveByStep(0, -keyboardMoveStep);
-				return;
-			case "ArrowDown":
-				event.preventDefault();
-				void moveByStep(0, keyboardMoveStep);
-				return;
-			case "ArrowLeft":
-				event.preventDefault();
-				void moveByStep(-keyboardMoveStep, 0);
-				return;
-			case "ArrowRight":
-				event.preventDefault();
-				void moveByStep(keyboardMoveStep, 0);
-				return;
-			case "Minus":
-			case "NumpadSubtract":
-				event.preventDefault();
-				void resizeByStep(-resizeStep);
-				return;
-			case "Equal":
-			case "NumpadAdd":
-				event.preventDefault();
-				void resizeByStep(resizeStep);
-				return;
-		}
-	}
-
 	stage.addEventListener("contextmenu", (event) => {
 		event.preventDefault();
 		openContextMenu();
@@ -647,7 +585,6 @@ export function createOverlayShellScreen({
 		render();
 	}, startupHintTimeoutMs);
 
-	window.addEventListener("keydown", handleKeyboardShortcut);
 	void window.camlet.setWindowResizable(false);
 	void syncDisplayWorkArea();
 	render();
@@ -657,7 +594,6 @@ export function createOverlayShellScreen({
 		destroy() {
 			destroyed = true;
 			window.clearTimeout(startupHintTimeout);
-			window.removeEventListener("keydown", handleKeyboardShortcut);
 			removeCameraListener();
 			removeLanguageListener();
 			removeContextMenuListener();

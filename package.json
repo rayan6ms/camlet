@@ -1,6 +1,6 @@
 {
 	"name": "camlet",
-	"version": "0.1.0",
+	"version": "0.1.2",
 	"description": "Lightweight Electron webcam overlay desktops.",
 	"private": true,
 	"author": "Camlet contributors",
@@ -23,7 +23,7 @@
 		"test:integration": "vitest run tests/integration",
 		"verify": "pnpm typecheck && pnpm check && pnpm test && pnpm build",
 		"package": "pnpm build && electron-builder --config electron-builder.yml --publish never",
-		"package:linux": "pnpm build && electron-builder --config electron-builder.yml --linux AppImage --publish never",
+		"package:linux": "pnpm build && electron-builder --config electron-builder.yml --linux AppImage --publish never && node ./scripts/patch-linux-appimage.mjs",
 		"package:win": "pnpm build && electron-builder --config electron-builder.yml --win nsis --publish never",
 		"dist": "pnpm package",
 		"icons:generate": "node ./scripts/generate-icons.mjs",

@@ -1,7 +1,8 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, session } from "electron/main";
+import type { BrowserWindow as BrowserWindowType } from "electron/main";
+import { resolveLinuxWindowIconPath } from "./icon-path.js";
 import { registerAppIpc } from "./ipc/register-app-ipc.js";
 import {
 	configureSessionSecurity,
@@ -26,17 +27,23 @@ const rendererHtmlPath = path.join(
 	currentDir,
 	"../../dist/renderer/index.html",
 );
+const linuxWindowIconPath = resolveLinuxWindowIconPath(currentDir);
 const appVersion =
 	typeof packageJson.version === "string" &&
 	packageJson.version.trim().length > 0
 		? packageJson.version
 		: "0.0.0";
-const appWithVersionSetter = app as typeof app & {
-	setVersion?: (version: string) => void;
-};
 const isLinux = process.platform === "linux";
 
-function shouldPreferX11Backend() {
+function hasExplicitOzonePlatformArgument() {
+	return process.argv.some(
+		(argument) =>
+			argument === "--ozone-platform" ||
+			argument.startsWith("--ozone-platform="),
+	);
+}
+
+function shouldPreferX11Windowing() {
 	if (!isLinux) {
 		return false;
 	}
@@ -45,15 +52,36 @@ function shouldPreferX11Backend() {
 		return false;
 	}
 
-	if (app.commandLine.hasSwitch("ozone-platform")) {
+	if (hasExplicitOzonePlatformArgument()) {
 		return false;
 	}
 
 	return Boolean(process.env.DISPLAY?.trim());
 }
 
+function configureLinuxWindowingEnvironment() {
+	if (!shouldPreferX11Windowing()) {
+		return;
+	}
+
+	process.env.ELECTRON_OZONE_PLATFORM_HINT = "x11";
+	process.env.OZONE_PLATFORM = "x11";
+	process.env.GDK_BACKEND = "x11";
+	delete process.env.WAYLAND_DISPLAY;
+}
+
+configureLinuxWindowingEnvironment();
+
+const { app, BrowserWindow, session } = await import("electron/main");
+const appWithVersionSetter = app as typeof app & {
+	setVersion?: (version: string) => void;
+};
+
 function configureLinuxWindowingBackend() {
-	if (!shouldPreferX11Backend()) {
+	if (
+		!shouldPreferX11Windowing() ||
+		app.commandLine.hasSwitch("ozone-platform")
+	) {
 		return;
 	}
 
@@ -74,6 +102,9 @@ async function openMainWindow(
 			overlayShape: settings.overlayShape,
 			cornerRoundness: settings.cornerRoundness,
 		},
+		...(linuxWindowIconPath !== undefined
+			? { iconPath: linuxWindowIconPath }
+			: {}),
 		preloadPath,
 		windowState,
 		...rendererPolicy,
@@ -98,7 +129,7 @@ app
 		configureSessionSecurity(session.defaultSession, rendererPolicy);
 
 		const settingsStore = new SettingsStoreService();
-		let aboutWindow: BrowserWindow | null = null;
+		let aboutWindow: BrowserWindowType | null = null;
 		const openAboutWindow = async () => {
 			if (aboutWindow !== null && !aboutWindow.isDestroyed()) {
 				aboutWindow.show();
@@ -107,6 +138,9 @@ app
 			}
 
 			aboutWindow = await createAboutWindow({
+				...(linuxWindowIconPath !== undefined
+					? { iconPath: linuxWindowIconPath }
+					: {}),
 				preloadPath,
 				...rendererPolicy,
 			});

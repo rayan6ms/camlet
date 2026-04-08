@@ -3,10 +3,12 @@ import { BrowserWindow } from "electron/main";
 import type { RendererAssetPolicy } from "../security.js";
 
 export interface AboutWindowAssets extends RendererAssetPolicy {
+	iconPath?: string;
 	preloadPath: string;
 }
 
 export async function createAboutWindow({
+	iconPath,
 	preloadPath,
 	rendererHtmlPath,
 	rendererUrl,
@@ -19,6 +21,7 @@ export async function createAboutWindow({
 		show: false,
 		autoHideMenuBar: true,
 		backgroundColor: "#0B0F14",
+		...(iconPath !== undefined ? { icon: iconPath } : {}),
 		title: "About Camlet",
 		webPreferences: {
 			preload: preloadPath,

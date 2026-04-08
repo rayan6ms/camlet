@@ -2,8 +2,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import { BrowserWindow } from "electron/main";
 import type { OverlayAppearanceSettings } from "../../shared/appearance.js";
 import {
+	getMaximumSquareWindowSize,
 	minimumWindowHeight,
 	minimumWindowWidth,
+	resizeSquareWindowStateByDelta,
+	resizeStep,
 	type WindowState,
 } from "../../shared/window-state.js";
 import { showMainWindowContextMenu } from "../ipc/context-menu.js";
@@ -12,12 +15,17 @@ import {
 	type RendererAssetPolicy,
 } from "../security.js";
 import { applyMainWindowShape } from "./window-shape.js";
+import {
+	getCurrentDisplayWorkArea,
+	setMainWindowState,
+} from "./window-state.js";
 
 export interface MainWindowAssets extends RendererAssetPolicy {
 	appearance: Pick<
 		OverlayAppearanceSettings,
 		"overlayShape" | "cornerRoundness"
 	>;
+	iconPath?: string;
 	preloadPath: string;
 	windowState: WindowState;
 }
@@ -149,6 +157,79 @@ function maintainAlwaysOnTop(window: BrowserWindow) {
 	reassertAlwaysOnTop();
 }
 
+const keyboardMoveStep = 1;
+const keyboardMoveStepLarge = 24;
+
+function attachWindowKeyboardShortcuts(window: BrowserWindow) {
+	window.webContents.on("before-input-event", (event, input) => {
+		if (
+			input.type !== "keyDown" ||
+			input.alt ||
+			input.control ||
+			input.meta ||
+			input.isComposing
+		) {
+			return;
+		}
+
+		const currentWindowState = window.getBounds();
+		const moveStep = input.shift ? keyboardMoveStepLarge : keyboardMoveStep;
+		let nextWindowState: WindowState | null = null;
+
+		switch (input.code) {
+			case "ArrowUp":
+				nextWindowState = {
+					...currentWindowState,
+					y: currentWindowState.y - moveStep,
+				};
+				break;
+			case "ArrowDown":
+				nextWindowState = {
+					...currentWindowState,
+					y: currentWindowState.y + moveStep,
+				};
+				break;
+			case "ArrowLeft":
+				nextWindowState = {
+					...currentWindowState,
+					x: currentWindowState.x - moveStep,
+				};
+				break;
+			case "ArrowRight":
+				nextWindowState = {
+					...currentWindowState,
+					x: currentWindowState.x + moveStep,
+				};
+				break;
+			case "Minus":
+			case "NumpadSubtract": {
+				const displayWorkArea = getCurrentDisplayWorkArea(window);
+				nextWindowState = resizeSquareWindowStateByDelta(
+					currentWindowState,
+					-resizeStep,
+					getMaximumSquareWindowSize(displayWorkArea),
+				);
+				break;
+			}
+			case "Equal":
+			case "NumpadAdd": {
+				const displayWorkArea = getCurrentDisplayWorkArea(window);
+				nextWindowState = resizeSquareWindowStateByDelta(
+					currentWindowState,
+					resizeStep,
+					getMaximumSquareWindowSize(displayWorkArea),
+				);
+				break;
+			}
+			default:
+				return;
+		}
+
+		event.preventDefault();
+		setMainWindowState(window, nextWindowState);
+	});
+}
+
 function isRetryableDevRendererLoadError(error: unknown): boolean {
 	if (!(error instanceof Error)) {
 		return false;
@@ -197,6 +278,7 @@ async function loadDevRendererUrl(
 
 export async function createMainWindow({
 	appearance,
+	iconPath,
 	preloadPath,
 	rendererHtmlPath,
 	rendererUrl,
@@ -223,6 +305,7 @@ export async function createMainWindow({
 		show: false,
 		autoHideMenuBar: true,
 		backgroundColor: "#00000000",
+		...(iconPath !== undefined ? { icon: iconPath } : {}),
 		title: "Camlet",
 		webPreferences: {
 			preload: preloadPath,
@@ -247,6 +330,7 @@ export async function createMainWindow({
 	});
 	applyMainWindowShape(window, appearance);
 	maintainAlwaysOnTop(window);
+	attachWindowKeyboardShortcuts(window);
 	hardenWindowNavigation(window, rendererPolicy);
 	attachDevWindowDiagnostics(window, rendererPolicy);
 

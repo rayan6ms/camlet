@@ -10,6 +10,9 @@ files:
   - assets/about/**
   - package.json
   - LICENSE
+extraResources:
+  - from: assets/icons/512x512.png
+    to: icons/512x512.png
 extraMetadata:
   main: dist-electron/main/index.js
 asar: true
@@ -17,6 +20,8 @@ npmRebuild: false
 linux:
   category: Utility
   executableName: camlet
+  executableArgs:
+    - --ozone-platform=x11
   icon: icons
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
   target:
