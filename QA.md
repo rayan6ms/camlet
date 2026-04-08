@@ -20,7 +20,6 @@ Do not call a build release-candidate ready until all of the following are true:
 - `pnpm verify` passes locally.
 - At least one Linux AppImage launch has been validated on a real desktop session.
 - The in-app About surface shows the intended version, release channel, runtime mode, platform, arch, display protocol, and Electron/Chrome runtime versions.
-- The diagnostics summary can be copied from the About panel and attached to a bug report.
 - Camera permission denial, camera-busy behavior, no-camera fallback, and saved-device fallback are understandable without reading logs.
 - Startup notices for repaired settings or unavailable persistence are visible and translated.
 - The language selector lists every shipped locale and switching between them does not break the overlay UI.
@@ -74,14 +73,14 @@ Validate the relevant rows before widening distribution:
 - If possible, launch the app with the OS locale set to a supported language family and confirm `system` resolves to the expected shipped locale.
 - Confirm translated startup failure screens still show the reload action and developer-only debug details in development builds.
 
-## Packaged Diagnostics and Bug Reports
+## Packaged Bug Reports
 
 When filing a packaged-app issue, include:
 
 - the exact artifact name
 - the host OS and desktop session
 - whether the run was Wayland, X11, or Windows desktop
-- the copied diagnostics summary from the About panel
+- the About/build metadata shown in-app
 - whether the problem reproduces after restarting Camlet
 - whether the problem reproduces with a clean settings profile
 

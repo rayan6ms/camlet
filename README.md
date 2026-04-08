@@ -15,7 +15,7 @@ The current scope includes:
 - startup notices when saved settings were repaired or could not be persisted safely
 - translated startup/bootstrap failure handling
 - About/build info with packaged-runtime metadata
-- copyable diagnostics summary for packaged-app validation and bug reports
+- development-only diagnostics window for runtime memory and size inspection
 - deterministic locale structure checks against the English source locale
 - safer camera fallback handling for missing labels, stale saved devices, busy cameras, and missing media APIs
 - focused-window keyboard shortcuts for precise overlay movement and resizing
@@ -109,7 +109,7 @@ Use [`QA.md`](./QA.md) for the release-candidate checklist covering:
 - Windows packaged-app smoke checks
 - transparency, drag, persistence, and camera behavior
 - startup/config recovery scenarios
-- diagnostics summary capture for bug reports
+- development diagnostics window for runtime memory and size inspection
 - language switching and translated startup/settings/About coverage
 
 Use [`LOCALIZATION.md`](./LOCALIZATION.md) for the translation structure, source-of-truth rules, and the safe process for adding a new locale.

@@ -118,11 +118,32 @@ app
 		registerAppIpc(settingsStore, {
 			openAboutWindow,
 		});
-		await openMainWindow(settingsStore, rendererPolicy);
+		const mainWindow = await openMainWindow(settingsStore, rendererPolicy);
+
+		if (rendererUrl !== undefined) {
+			const { openDevelopmentDiagnosticsWindow } = await import(
+				"./dev/diagnostics-window.js"
+			);
+			await openDevelopmentDiagnosticsWindow({
+				overlayWindow: mainWindow,
+			});
+		}
 
 		app.on("activate", async () => {
 			if (BrowserWindow.getAllWindows().length === 0) {
-				await openMainWindow(settingsStore, rendererPolicy);
+				const nextMainWindow = await openMainWindow(
+					settingsStore,
+					rendererPolicy,
+				);
+
+				if (rendererUrl !== undefined) {
+					const { openDevelopmentDiagnosticsWindow } = await import(
+						"./dev/diagnostics-window.js"
+					);
+					await openDevelopmentDiagnosticsWindow({
+						overlayWindow: nextMainWindow,
+					});
+				}
 			}
 		});
 	})

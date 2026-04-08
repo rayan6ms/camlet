@@ -234,6 +234,8 @@ export function OverlayShellScreen({ bootstrap }: OverlayShellScreenProps) {
 		...appearance,
 		overlaySize: surfaceSize,
 	});
+	const isRinglessCircle =
+		appearance.overlayShape === "circle" && effectiveRingThickness === 0;
 	const activeThemeId = getThemeId(
 		settings.ringColor,
 		settings.ringAccentColor,
@@ -566,7 +568,7 @@ export function OverlayShellScreen({ bootstrap }: OverlayShellScreenProps) {
 		>
 			<section
 				aria-label={t("overlay.preview")}
-				className={`${appearanceModel.lensClassName} camlet-surface ${resizeMode ? "camlet-surface--resizing" : ""}`}
+				className={`${appearanceModel.lensClassName} camlet-surface ${resizeMode ? "camlet-surface--resizing" : ""} ${isRinglessCircle ? "camlet-surface--ringless-circle" : ""}`}
 				onDoubleClick={(event) => {
 					event.preventDefault();
 				}}

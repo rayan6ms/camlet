@@ -245,6 +245,54 @@ textarea {
 	backface-visibility: hidden;
 }
 
+.camlet-surface--ringless-circle {
+	overflow: hidden;
+	border-radius: 50%;
+}
+
+.camlet-surface--ringless-circle::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: 50%;
+	background:
+		radial-gradient(
+			circle at 20% 20%,
+			var(--camlet-surface-tint),
+			transparent 38%
+		),
+		rgba(5, 10, 16, 0.86);
+	pointer-events: none;
+	z-index: 0;
+}
+
+.camlet-surface--ringless-circle .camlet-surface__viewport,
+.camlet-surface--ringless-circle .camlet-surface__video {
+	border-radius: 50%;
+	clip-path: none;
+	-webkit-mask-image: radial-gradient(
+		circle closest-side at 50% 50%,
+		#000 calc(100% - 3px),
+		transparent 100%
+	);
+	mask-image: radial-gradient(
+		circle closest-side at 50% 50%,
+		#000 calc(100% - 3px),
+		transparent 100%
+	);
+	-webkit-mask-repeat: no-repeat;
+	mask-repeat: no-repeat;
+}
+
+.camlet-surface--ringless-circle .camlet-surface__viewport {
+	inset: -8px;
+	background: transparent;
+}
+
+.camlet-surface--ringless-circle .camlet-surface__video {
+	transform: scaleX(-1) scale(1.08);
+}
+
 .camlet-surface__ring {
 	position: absolute;
 	inset: 0;
