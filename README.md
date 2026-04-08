@@ -68,7 +68,7 @@ assets/icons/               Application icons and packaging assets
 src/main/                   Electron window bootstrap, IPC, and persistence glue
 src/preload/                Sandboxed preload bridge
 src/shared/                 Shared contracts, settings, appearance, release, and window-state helpers
-src/renderer/               React renderer entry, overlay UI, diagnostics, media preview, locales, and styles
+src/renderer/               DOM renderer entry, overlay UI, diagnostics, media preview, locales, and styles
 tests/unit/                 Deterministic shared and renderer helper tests
 tests/integration/          Deterministic preload, bootstrap, security, and settings-store smoke tests
 .github/workflows/          CI, packaging, and release workflows
@@ -84,7 +84,7 @@ Camlet stays split into three layers:
 2. `preload`
    Exposes a minimal typed bridge with `contextIsolation: true`, `nodeIntegration: false`, and `sandbox: true`.
 3. `renderer`
-   Runs the React overlay shell, initializes i18n, manages the webcam preview directly with web media APIs, applies appearance changes live, and renders startup/build diagnostics.
+   Runs the DOM-based overlay shell, initializes i18n, manages the webcam preview directly with web media APIs, applies appearance changes live, and renders startup/build diagnostics.
 
 Raw media streams stay in the renderer and are never sent over IPC.
 

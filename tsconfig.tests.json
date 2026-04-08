@@ -14,11 +14,9 @@
 		"src/main/bootstrap.ts",
 		"src/main/security.ts",
 		"src/main/services/settings-store-core.ts",
-		"src/preload/api.ts",
 		"src/renderer/locales/**/*.ts",
 		"src/renderer/features/overlay-shell/appearance.ts",
 		"src/renderer/features/overlay-shell/camera.ts",
-		"src/renderer/features/overlay-shell/diagnostics.ts",
 		"src/renderer/features/overlay-shell/settings-panel.ts",
 		"src/renderer/startup.ts"
 	]
