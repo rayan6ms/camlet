@@ -21,15 +21,10 @@ const appDisplayProtocolValues = [
 	"macos",
 	"unknown",
 ] as const;
-const appBootstrapIssueValues = [
-	"settings-recovered",
-	"settings-persistence-unavailable",
-] as const;
 
 export type AppReleaseChannel = (typeof appReleaseChannelValues)[number];
 export type AppRuntimeMode = (typeof appRuntimeModeValues)[number];
 export type AppDisplayProtocol = (typeof appDisplayProtocolValues)[number];
-export type AppBootstrapIssue = (typeof appBootstrapIssueValues)[number];
 
 export interface AppInfo {
 	name: string;
@@ -54,13 +49,11 @@ export interface AppBootstrap {
 	};
 	settings: CamletSettings;
 	windowState: WindowState;
-	issues: AppBootstrapIssue[];
 }
 
 export const appReleaseChannelSchema = enumSchema(appReleaseChannelValues);
 export const appRuntimeModeSchema = enumSchema(appRuntimeModeValues);
 export const appDisplayProtocolSchema = enumSchema(appDisplayProtocolValues);
-export const appBootstrapIssueSchema = enumSchema(appBootstrapIssueValues);
 
 export const appInfoSchema = objectSchema({
 	name: stringSchema({ trim: true, minLength: 1 }),
@@ -85,15 +78,8 @@ export const appBootstrapSchema = objectSchema({
 	}),
 	settings: camletSettingsSchema,
 	windowState: windowStateSchema,
-	issues: arraySchema(appBootstrapIssueSchema),
 });
 
 export function resolveAppReleaseChannel(version: string): AppReleaseChannel {
 	return isPrereleaseVersion(version) ? "prerelease" : "stable";
-}
-
-export function dedupeAppBootstrapIssues(
-	issues: Iterable<AppBootstrapIssue>,
-): AppBootstrapIssue[] {
-	return [...new Set(issues)];
 }

@@ -58,7 +58,6 @@ describe("settings store integration", () => {
 			x: 24,
 		});
 		expect(adapter.writes.at(-1)).toEqual(repairedSettings);
-		expect(service.getBootstrapIssues()).toEqual(["settings-recovered"]);
 	});
 
 	it("continues from cached settings when persisted reads fail later", () => {
@@ -85,12 +84,9 @@ describe("settings store integration", () => {
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		adapter.throwOnWrite = true;
 
-		const nextSettings = service.setLanguage("ja");
+		const nextSettings = service.setLanguage("pt-BR");
 
-		expect(nextSettings.language).toBe("ja");
-		expect(service.getSettings().language).toBe("ja");
-		expect(service.getBootstrapIssues()).toEqual([
-			"settings-persistence-unavailable",
-		]);
+		expect(nextSettings.language).toBe("pt-BR");
+		expect(service.getSettings().language).toBe("pt-BR");
 	});
 });

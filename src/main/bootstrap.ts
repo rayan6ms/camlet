@@ -1,9 +1,7 @@
 import {
 	type AppBootstrap,
-	type AppBootstrapIssue,
 	type AppDisplayProtocol,
 	type AppRuntimeMode,
-	dedupeAppBootstrapIssues,
 	resolveAppReleaseChannel,
 } from "../shared/bootstrap.js";
 import { fallbackLanguage, resolveAppLanguage } from "../shared/language.js";
@@ -92,7 +90,6 @@ export function createAppBootstrap(options: {
 	app: AppRuntimeInfo;
 	settings: CamletSettings;
 	systemLocale?: string | null;
-	issues?: Iterable<AppBootstrapIssue>;
 }): AppBootstrap {
 	const systemLocale = normalizeSystemLocale(options.systemLocale);
 	const version = options.app.version?.trim() || "0.0.0";
@@ -133,6 +130,5 @@ export function createAppBootstrap(options: {
 		},
 		settings: options.settings,
 		windowState: options.settings.window,
-		issues: dedupeAppBootstrapIssues(options.issues ?? []),
 	};
 }

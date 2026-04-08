@@ -44,7 +44,7 @@ export function createStartupErrorScreen({
 		details.className = "startup-screen__details";
 
 		const summary = document.createElement("summary");
-		summary.textContent = t("startup.debugSummary");
+		summary.textContent = "Startup details";
 
 		const code = document.createElement("code");
 		code.textContent = error.detail;

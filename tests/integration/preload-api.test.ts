@@ -56,11 +56,6 @@ describe("preload API contract", () => {
 					system: "System default",
 					en: "English",
 					"pt-BR": "Português (Brasil)",
-					es: "Español",
-					fr: "Français",
-					de: "Deutsch",
-					it: "Italiano",
-					ja: "日本語",
 				},
 			},
 			selectedThemeId: "mint" as const,
@@ -82,7 +77,7 @@ describe("preload API contract", () => {
 		await api.getSettings();
 		await api.getAboutInfo();
 		await api.openAboutWindow();
-		await api.setLanguage("ja");
+		await api.setLanguage("pt-BR");
 		await api.setSelectedCameraDeviceId("camera-1");
 		await api.updateOverlayAppearanceSettings({
 			ringThickness: 8,
@@ -112,7 +107,7 @@ describe("preload API contract", () => {
 			[ipcChannels.getSettings],
 			[ipcChannels.getAboutInfo],
 			[ipcChannels.openAboutWindow],
-			[ipcChannels.setLanguage, "ja"],
+			[ipcChannels.setLanguage, "pt-BR"],
 			[ipcChannels.setSelectedCameraDeviceId, "camera-1"],
 			[ipcChannels.updateOverlayAppearanceSettings, { ringThickness: 8 }],
 			[ipcChannels.startWindowDrag, { screenX: 50, screenY: 60 }],

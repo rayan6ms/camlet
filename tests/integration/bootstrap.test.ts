@@ -50,7 +50,6 @@ describe("app bootstrap helpers", () => {
 				language: "pt-BR",
 			},
 			windowState: defaultCamletSettings.window,
-			issues: [],
 		});
 	});
 
@@ -80,7 +79,6 @@ describe("app bootstrap helpers", () => {
 		expect(bootstrap.app.versions.chrome).toBe(process.versions.chrome);
 		expect(bootstrap.locale.system).toBe("en");
 		expect(bootstrap.locale.effective).toBe("en");
-		expect(bootstrap.issues).toEqual([]);
 	});
 
 	it("normalizes missing system locales to the shared fallback language", () => {
@@ -134,7 +132,7 @@ describe("app bootstrap helpers", () => {
 		).toBe("macos");
 	});
 
-	it("adds release channel, runtime mode, and deduped startup issues", () => {
+	it("adds release channel and runtime mode", () => {
 		const bootstrap = createAppBootstrap({
 			app: {
 				name: "Camlet",
@@ -145,19 +143,10 @@ describe("app bootstrap helpers", () => {
 				packaged: false,
 			},
 			settings: defaultCamletSettings,
-			issues: [
-				"settings-recovered",
-				"settings-recovered",
-				"settings-persistence-unavailable",
-			],
 		});
 
 		expect(bootstrap.app.channel).toBe("prerelease");
 		expect(bootstrap.app.mode).toBe("development");
 		expect(bootstrap.app.packaged).toBe(false);
-		expect(bootstrap.issues).toEqual([
-			"settings-recovered",
-			"settings-persistence-unavailable",
-		]);
 	});
 });

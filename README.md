@@ -11,12 +11,9 @@ The current scope includes:
 - webcam preview with renderer-owned `getUserMedia`
 - camera device enumeration and persisted selected camera device id
 - compact in-app settings for camera, language, and appearance
-- live language switching with persisted `system`, `en`, `pt-BR`, `es`, `fr`, `de`, `it`, and `ja` modes
-- startup notices when saved settings were repaired or could not be persisted safely
-- translated startup/bootstrap failure handling
+- live language switching with persisted `system`, `en`, and `pt-BR` modes
 - About/build info with packaged-runtime metadata
 - development-only diagnostics window for runtime memory and size inspection
-- deterministic locale structure checks against the English source locale
 - safer camera fallback handling for missing labels, stale saved devices, busy cameras, and missing media APIs
 - focused-window keyboard shortcuts for precise overlay movement and resizing
 - Electron Builder packaging for Linux AppImage and prepared Windows NSIS output
@@ -76,7 +73,6 @@ tests/unit/                 Deterministic shared and renderer helper tests
 tests/integration/          Deterministic preload, bootstrap, security, and settings-store smoke tests
 .github/workflows/          CI, packaging, and release workflows
 scripts/                    Local helper scripts
-LOCALIZATION.md             Translation structure, locale workflow, and maintenance guidance
 ```
 
 ## Electron Architecture
@@ -92,29 +88,11 @@ Camlet stays split into three layers:
 
 Raw media streams stay in the renderer and are never sent over IPC.
 
-## Localization Scope
+## Localization
 
-- English remains the source-of-truth locale shape
-- all shipped locales are bundled locally with the renderer
-- locale structure is validated in tests against the English base locale
-- system locale detection maps supported language families to the shipped locale set
-- the settings language picker uses stable ordering with native language labels
-
-## Manual Validation
-
-Use [`QA.md`](./QA.md) for the release-candidate checklist covering:
-
-- Ubuntu Wayland validation
-- Ubuntu X11 validation
-- Windows packaged-app smoke checks
-- transparency, drag, persistence, and camera behavior
-- startup/config recovery scenarios
-- development diagnostics window for runtime memory and size inspection
-- language switching and translated startup/settings/About coverage
-
-Use [`LOCALIZATION.md`](./LOCALIZATION.md) for the translation structure, source-of-truth rules, and the safe process for adding a new locale.
-
-Use [`RELEASING.md`](./RELEASING.md) for the candidate-to-release flow.
+- shipped UI languages: `en` and `pt-BR`
+- `system` resolves to the nearest shipped language family
+- locale structure is still validated in tests against English
 
 ## Packaging and Distribution
 

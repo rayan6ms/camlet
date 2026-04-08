@@ -68,7 +68,6 @@ export function registerAppIpc(
 			},
 			settings,
 			systemLocale: app.getLocale(),
-			issues: settingsStore.getBootstrapIssues(),
 		});
 	});
 

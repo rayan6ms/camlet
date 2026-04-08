@@ -1,14 +1,6 @@
 import { enumSchema } from "./validation.js";
 
-export const supportedLanguages = [
-	"en",
-	"pt-BR",
-	"es",
-	"fr",
-	"de",
-	"it",
-	"ja",
-] as const;
+export const supportedLanguages = ["en", "pt-BR"] as const;
 export const appLanguages = ["system", ...supportedLanguages] as const;
 
 export type SupportedLanguage = (typeof supportedLanguages)[number];
@@ -24,26 +16,6 @@ const systemLocaleMappings = [
 	{
 		language: "pt-BR",
 		prefixes: ["pt"],
-	},
-	{
-		language: "es",
-		prefixes: ["es"],
-	},
-	{
-		language: "fr",
-		prefixes: ["fr"],
-	},
-	{
-		language: "de",
-		prefixes: ["de"],
-	},
-	{
-		language: "it",
-		prefixes: ["it"],
-	},
-	{
-		language: "ja",
-		prefixes: ["ja"],
 	},
 	{
 		language: "en",

@@ -1,11 +1,9 @@
-import type { AppBootstrapIssue } from "../../shared/bootstrap.js";
 import type { AppLanguage } from "../../shared/language.js";
 import {
 	applyCamletSettingsPatch,
 	applyOverlayAppearanceSettingsPatch,
 	type CamletSettings,
 	type CamletSettingsPatch,
-	camletSettingsSchema,
 	defaultCamletSettings,
 	mergeCamletSettings,
 	type OverlayAppearanceSettingsPatch,
@@ -28,7 +26,6 @@ function cloneSettings(settings: CamletSettings): CamletSettings {
 export class SettingsStoreService {
 	private cachedSettings = cloneDefaultSettings();
 	private persistenceHealthy = true;
-	private readonly bootstrapIssues = new Set<AppBootstrapIssue>();
 
 	constructor(private readonly adapter: SettingsStoreAdapter) {
 		const repairedSettings = this.readSettingsSnapshot();
@@ -42,16 +39,10 @@ export class SettingsStoreService {
 
 		try {
 			const persistedSettings = this.adapter.read();
-
-			if (!camletSettingsSchema.safeParse(persistedSettings).success) {
-				this.bootstrapIssues.add("settings-recovered");
-			}
-
 			const nextSettings = mergeCamletSettings(persistedSettings);
 			this.cachedSettings = cloneSettings(nextSettings);
 			return nextSettings;
 		} catch (error) {
-			this.bootstrapIssues.add("settings-recovered");
 			console.error(
 				"Failed to read persisted Camlet settings, falling back to cached defaults.",
 				error,
@@ -69,7 +60,6 @@ export class SettingsStoreService {
 			this.persistenceHealthy = true;
 		} catch (error) {
 			this.persistenceHealthy = false;
-			this.bootstrapIssues.add("settings-persistence-unavailable");
 			console.error(
 				"Failed to persist Camlet settings, continuing with in-memory settings.",
 				error,
@@ -81,10 +71,6 @@ export class SettingsStoreService {
 
 	getSettings(): CamletSettings {
 		return this.persistSettingsSnapshot(this.readSettingsSnapshot());
-	}
-
-	getBootstrapIssues(): AppBootstrapIssue[] {
-		return [...this.bootstrapIssues];
 	}
 
 	updateSettings(patch: CamletSettingsPatch): CamletSettings {

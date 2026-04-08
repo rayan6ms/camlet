@@ -98,10 +98,10 @@ describe("Camlet settings schema", () => {
 
 	it("preserves supported persisted language values", () => {
 		const mergedSettings = mergeCamletSettings({
-			language: "ja",
+			language: "pt-BR",
 		});
 
-		expect(mergedSettings.language).toBe("ja");
+		expect(mergedSettings.language).toBe("pt-BR");
 	});
 
 	it("falls back to the default language mode when persisted language is invalid", () => {
@@ -118,11 +118,6 @@ describe("language helpers", () => {
 		expect(resolveSupportedLanguage("pt-PT")).toBe("pt-BR");
 		expect(resolveSupportedLanguage("pt-BR")).toBe("pt-BR");
 		expect(resolveSupportedLanguage("en-US")).toBe("en");
-		expect(resolveSupportedLanguage("es-MX")).toBe("es");
-		expect(resolveSupportedLanguage("fr-CA")).toBe("fr");
-		expect(resolveSupportedLanguage("de-DE")).toBe("de");
-		expect(resolveSupportedLanguage("it-IT")).toBe("it");
-		expect(resolveSupportedLanguage("ja-JP")).toBe("ja");
 	});
 
 	it("falls back to English for unsupported locales", () => {
@@ -134,11 +129,6 @@ describe("language helpers", () => {
 			"system",
 			"en",
 			"pt-BR",
-			"es",
-			"fr",
-			"de",
-			"it",
-			"ja",
 		]);
 	});
 });

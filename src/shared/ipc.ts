@@ -2,7 +2,6 @@ import type { AboutInfo } from "./about.js";
 import type { OverlayShape, PreviewFitMode } from "./appearance.js";
 import type {
 	AppBootstrap,
-	AppBootstrapIssue,
 	AppInfo,
 	AppReleaseChannel,
 	AppRuntimeMode,
@@ -177,7 +176,6 @@ export interface CamletApi {
 
 export type {
 	AppBootstrap,
-	AppBootstrapIssue,
 	AppInfo,
 	AppReleaseChannel,
 	AppRuntimeMode,
