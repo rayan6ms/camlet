@@ -1,6 +1,6 @@
 {
 	"name": "camlet",
-	"version": "0.1.4",
+	"version": "0.1.5",
 	"description": "Lightweight Electron webcam overlay desktops.",
 	"private": true,
 	"author": "Camlet contributors",
