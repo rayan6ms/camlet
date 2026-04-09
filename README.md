@@ -2,7 +2,19 @@
 <h1 align="center">Camlet</h1>
 
 <p align="center">
-  <img src="./assets/icons/256x256.png" alt="Camlet icon" width="256" height="256">
+  <img src="./assets/icons/256x256.png" alt="Camlet icon" width="128" height="128">
+</p>
+
+<p align="center">
+  <a href="https://github.com/rayan6ms/camlet/releases">
+    <img src="https://img.shields.io/github/downloads/rayan6ms/camlet/total?style=flat-square" alt="Total downloads">
+  </a>
+  <a href="https://github.com/rayan6ms/camlet/stargazers">
+    <img src="https://img.shields.io/github/stars/rayan6ms/camlet?style=flat-square" alt="GitHub stars">
+  </a>
+  <a href="https://github.com/rayan6ms/camlet/releases/latest">
+    <img src="https://img.shields.io/github/v/release/rayan6ms/camlet?display_name=tag&sort=semver&style=flat-square" alt="Latest release">
+  </a>
 </p>
 
 <p align="center">
