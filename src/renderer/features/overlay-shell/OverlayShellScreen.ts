@@ -496,6 +496,31 @@ export function createOverlayShellScreen({
 		void window.camlet.showContextMenu(buildContextMenuRequest());
 	}
 
+	function toScreenPoint(event: PointerEvent) {
+		return {
+			screenX: event.screenX,
+			screenY: event.screenY,
+		};
+	}
+
+	function isInteractiveDragTarget(target: EventTarget | null) {
+		return (
+			target instanceof Element &&
+			target.closest("button, input, select, textarea, a") !== null
+		);
+	}
+
+	let activeDragPointerId: number | null = null;
+
+	function endWindowDrag(pointerId: number) {
+		if (activeDragPointerId !== pointerId) {
+			return;
+		}
+
+		activeDragPointerId = null;
+		void window.camlet.endWindowDrag();
+	}
+
 	function handleContextMenuAction(action: CamletContextMenuAction) {
 		switch (action.type) {
 			case "set-theme": {
@@ -554,6 +579,43 @@ export function createOverlayShellScreen({
 				return;
 		}
 	}
+
+	surface.addEventListener("pointerdown", (event) => {
+		if (
+			event.button !== 0 ||
+			resizeMode ||
+			activeDragPointerId !== null ||
+			isInteractiveDragTarget(event.target)
+		) {
+			return;
+		}
+
+		event.preventDefault();
+		activeDragPointerId = event.pointerId;
+		surface.setPointerCapture(event.pointerId);
+		void window.camlet.startWindowDrag(toScreenPoint(event));
+	});
+
+	surface.addEventListener("pointermove", (event) => {
+		if (activeDragPointerId !== event.pointerId) {
+			return;
+		}
+
+		event.preventDefault();
+		void window.camlet.updateWindowDrag(toScreenPoint(event));
+	});
+
+	surface.addEventListener("pointerup", (event) => {
+		endWindowDrag(event.pointerId);
+	});
+
+	surface.addEventListener("pointercancel", (event) => {
+		endWindowDrag(event.pointerId);
+	});
+
+	surface.addEventListener("lostpointercapture", (event) => {
+		endWindowDrag(event.pointerId);
+	});
 
 	stage.addEventListener("contextmenu", (event) => {
 		event.preventDefault();

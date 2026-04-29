@@ -211,7 +211,7 @@ textarea {
 	overflow: visible;
 	background: transparent;
 	cursor: grab;
-	-webkit-app-region: drag;
+	-webkit-app-region: no-drag;
 	isolation: isolate;
 	touch-action: none;
 	user-select: none;
