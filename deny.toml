@@ -1,0 +1,41 @@
+[advisories]
+yanked = "deny"
+# Iced/WGPU currently carry `paste` and `ttf-parser` as unmaintained
+# transitive crates with no safe upgrade. Keep unmaintained direct dependencies
+# forbidden while still denying vulnerability and unsoundness advisories across
+# the complete graph. Remove this scope when upstream replacements are released.
+unmaintained = "workspace"
+
+[bans]
+# Cross-platform Iced/WGPU targets intentionally carry several platform crate
+# generations. Feature selection and direct dependencies remain reviewed.
+multiple-versions = "allow"
+wildcards = "deny"
+
+[licenses]
+confidence-threshold = 0.93
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "GPL-3.0-only",
+    "ISC",
+    # `nokhwa-core -> mozjpeg`; IJG permits source and binary redistribution
+    # and commercial use. Packaging must reproduce its notice alongside the
+    # BSD/Zlib notices carried by mozjpeg-sys.
+    "IJG",
+    "MIT",
+    # `directories -> dirs-sys -> option-ext`; MPL-2.0 permits distribution in
+    # a GPL-3.0 larger work while the covered crate files remain MPL-2.0.
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[sources]
+unknown-git = "deny"
+unknown-registry = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -1,0 +1,20 @@
+[package]
+name = "camlet-camera"
+description = "Camera and deterministic frame sources for Camlet"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[dependencies]
+nokhwa.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

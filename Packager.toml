@@ -1,0 +1,30 @@
+name = "camlet"
+product-name = "Camlet"
+version = "0.2.0"
+identifier = "io.github.rayan6ms.camlet"
+out-dir = "target/packages"
+binaries-dir = "target/release"
+description = "Lightweight floating camera overlay"
+long-description = "Camlet is a lightweight, always-on-top camera overlay for presentations, recordings, and calls."
+homepage = "https://github.com/rayan6ms/camlet"
+authors = ["Camlet contributors"]
+publisher = "Camlet contributors"
+license-file = "LICENSE"
+category = "Utility"
+icons = [
+	"assets/icon.ico",
+	"assets/icons/32x32.png",
+	"assets/icons/128x128.png",
+	"assets/icons/256x256.png",
+	"assets/icons/512x512.png",
+]
+
+[[binaries]]
+path = "camlet"
+main = true
+
+[nsis]
+compression = "lzma"
+installer-mode = "currentUser"
+languages = ["English", "PortugueseBR"]
+installer-icon = "assets/icon.ico"

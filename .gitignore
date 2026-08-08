@@ -1,0 +1,38 @@
+# Rust build output
+target/
+
+# Native packages and test evidence
+*.AppImage
+*.deb
+*.rpm
+*.exe
+*.msi
+*.zip
+*.tar.gz
+*.dmg
+artifacts/
+benchmarks/raw/
+screenshots/actual/
+
+# Local settings and temporary data
+data/
+userdata/
+config.local.json
+settings.local.json
+tmp/
+temp/
+
+# Development tools
+.cache/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Package work directories
+.flatpak-builder/

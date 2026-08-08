@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["rewrite/iced"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang libclang-dev libgl1-mesa-dri libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev mesa-vulkan-drivers xvfb
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependency policy tool
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --all-features --locked
+
+      - name: Dependency policy
+        run: cargo deny --all-features check
+
+      - name: Release build
+        run: cargo build --workspace --release --locked
+
+      - name: Headless configuration smoke test
+        run: target/release/camlet --frame-source synthetic --automation-check
+
+      - name: Window launch and shutdown
+        env:
+          WINIT_UNIX_BACKEND: x11
+        run: xvfb-run --auto-servernum target/release/camlet --frame-source synthetic --automation-exit
+
+      - name: Full compositor scenario
+        env:
+          WINIT_UNIX_BACKEND: x11
+        run: |
+          output="$RUNNER_TEMP/camlet-smoke-linux"
+          xvfb-run --auto-servernum target/release/camlet --frame-source synthetic --profile-dir "$output/profile" --automation-script fixtures/automation/full-smoke.json --automation-output "$output/results"
+          jq -e '.status == "complete"' "$output/results/complete.json"
+          jq -e '.camera.status == "preview" and .camera.deviceCount == 1' "$output/results/diagnostics.json"
+          for capture in original circle rounded-square diamond rectangle-y rectangle-x overlay; do
+            test -s "$output/results/$capture.ppm"
+          done
+
+      - name: Bounded resize and camera stress
+        env:
+          WINIT_UNIX_BACKEND: x11
+          CAMLET_ENDURANCE_FIXTURE: fixtures/automation/stress-without-soak.json
+          CAMLET_SAMPLE_INTERVAL_SECONDS: 5
+          CAMLET_EXPECTED_SCREENSHOT: stress.ppm
+          CAMLET_MAXIMUM_PSS_KIB: 163840
+        run: xvfb-run --auto-servernum scripts/run-native-endurance.sh "$RUNNER_TEMP/camlet-stress-linux"
+
+      - name: Upload Linux scenario evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: camlet-linux-scenario
+          path: |
+            ${{ runner.temp }}/camlet-smoke-linux/results
+            ${{ runner.temp }}/camlet-stress-linux
+          if-no-files-found: ignore
+          retention-days: 7
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --workspace --all-features --locked
+
+      - name: Release build
+        run: cargo build --workspace --release --locked
+
+      - name: Headless configuration smoke test
+        run: target\release\camlet.exe --frame-source synthetic --automation-check
+
+      - name: Window launch and shutdown
+        timeout-minutes: 2
+        run: |
+          $process = Start-Process -FilePath target\release\camlet.exe -ArgumentList "--frame-source", "synthetic", "--automation-exit" -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Window smoke failed with $($process.ExitCode)" }
+
+      - name: Full compositor scenario
+        timeout-minutes: 3
+        env:
+          CAMLET_OUTPUT: ${{ runner.temp }}/camlet-smoke-windows
+        run: |
+          $process = Start-Process -FilePath target\release\camlet.exe -ArgumentList "--frame-source", "synthetic", "--profile-dir", "$env:CAMLET_OUTPUT/profile", "--automation-script", "fixtures/automation/full-smoke.json", "--automation-output", "$env:CAMLET_OUTPUT/results" -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Scripted scenario failed with $($process.ExitCode)" }
+          $complete = Get-Content "$env:CAMLET_OUTPUT/results/complete.json" | ConvertFrom-Json
+          $diagnostics = Get-Content "$env:CAMLET_OUTPUT/results/diagnostics.json" | ConvertFrom-Json
+          if ($complete.status -ne "complete" -or $diagnostics.camera.status -ne "preview") { throw "Scenario evidence is invalid" }
+          foreach ($capture in @("original", "circle", "rounded-square", "diamond", "rectangle-y", "rectangle-x", "overlay")) {
+            if ((Get-Item "$env:CAMLET_OUTPUT/results/$capture.ppm").Length -eq 0) { throw "Missing capture: $capture" }
+          }
+
+      - name: Bounded resize and camera stress
+        timeout-minutes: 3
+        env:
+          CAMLET_OUTPUT: ${{ runner.temp }}/camlet-stress-windows
+        run: |
+          $process = Start-Process -FilePath target\release\camlet.exe -ArgumentList "--frame-source", "synthetic", "--profile-dir", "$env:CAMLET_OUTPUT/profile", "--automation-script", "fixtures/automation/stress-without-soak.json", "--automation-output", "$env:CAMLET_OUTPUT/results" -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Stress scenario failed with $($process.ExitCode)" }
+          $complete = Get-Content "$env:CAMLET_OUTPUT/results/complete.json" | ConvertFrom-Json
+          if ($complete.status -ne "complete") { throw "Stress scenario did not complete" }
+
+      - name: Upload Windows scenario evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: camlet-windows-scenario
+          path: |
+            ${{ runner.temp }}/camlet-smoke-windows/results
+            ${{ runner.temp }}/camlet-stress-windows/results
+          if-no-files-found: ignore
+          retention-days: 7

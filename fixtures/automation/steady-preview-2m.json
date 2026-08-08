@@ -1,0 +1,10 @@
+{
+	"schemaVersion": 1,
+	"actions": [
+		{ "type": "wait-for-preview" },
+		{ "type": "delay", "milliseconds": 120000 },
+		{ "type": "screenshot", "file": "steady-preview.ppm" },
+		{ "type": "diagnostics", "file": "diagnostics.json" },
+		{ "type": "quit" }
+	]
+}

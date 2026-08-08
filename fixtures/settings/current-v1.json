@@ -1,0 +1,20 @@
+{
+	"schemaVersion": 1,
+	"language": "pt-BR",
+	"selectedCameraDeviceId": "camera-current",
+	"appearance": {
+		"shape": "diamond",
+		"size": 320,
+		"ringColor": "#4DA7FF",
+		"ringAccentColor": "#77F1E1",
+		"ringThickness": 6,
+		"cornerRoundness": 36,
+		"fit": "contain"
+	},
+	"window": {
+		"x": -40,
+		"y": 72,
+		"width": 320,
+		"height": 320
+	}
+}

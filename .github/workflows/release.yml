@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang libclang-dev libgl1-mesa-dri libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev mesa-vulkan-drivers xvfb
+      - uses: Swatinem/rust-cache@v2
+      - name: Install package tool
+        run: cargo install cargo-packager --version 0.11.8 --locked
+      - name: Build and test packages
+        run: |
+          cargo build --workspace --release --locked
+          cargo packager --config Packager.toml --formats appimage,deb
+          appimage="$(find target/packages -maxdepth 1 -name '*.AppImage' -print -quit)"
+          deb="$(find target/packages -maxdepth 1 -name '*.deb' -print -quit)"
+          scripts/test-linux-packages.sh "$appimage" "$deb" "$RUNNER_TEMP/camlet-release-linux"
+          cp "$RUNNER_TEMP/camlet-release-linux/SHA256SUMS" target/packages/SHA256SUMS-linux.txt
+          (cd target/packages && sha256sum --check SHA256SUMS-linux.txt)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-linux
+          path: |
+            target/packages/*.AppImage
+            target/packages/*.deb
+            target/packages/SHA256SUMS-linux.txt
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+      - name: Install package tool
+        run: cargo install cargo-packager --version 0.11.8 --locked
+      - name: Build and test package
+        shell: pwsh
+        run: |
+          cargo build --workspace --release --locked
+          cargo packager --config Packager.toml --formats nsis
+          $installer = Get-ChildItem target/packages -Filter "*.exe" | Select-Object -First 1
+          if ($null -eq $installer) { throw "NSIS installer was not generated" }
+          scripts/test-windows-package.ps1 -Installer $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/camlet-release-windows"
+          Get-FileHash $installer.FullName -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } | Set-Content target/packages/SHA256SUMS-windows.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-windows
+          path: |
+            target/packages/*.exe
+            target/packages/SHA256SUMS-windows.txt
+          if-no-files-found: error
+
+  publish:
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download verified packages
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release-assets/* --verify-tag --notes-from-tag --target "$GITHUB_SHA" --title "Camlet $GITHUB_REF_NAME"

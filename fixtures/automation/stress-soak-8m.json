@@ -1,0 +1,13 @@
+{
+	"schemaVersion": 1,
+	"actions": [
+		{ "type": "wait-for-preview" },
+		{ "type": "resize-cycle", "repetitions": 500 },
+		{ "type": "restart-camera", "repetitions": 25 },
+		{ "type": "suspend-resume", "milliseconds": 250 },
+		{ "type": "delay", "milliseconds": 480000 },
+		{ "type": "screenshot", "file": "stress-soak.ppm" },
+		{ "type": "diagnostics", "file": "diagnostics.json" },
+		{ "type": "quit" }
+	]
+}

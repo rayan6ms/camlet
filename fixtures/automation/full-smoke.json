@@ -1,0 +1,29 @@
+{
+	"schemaVersion": 1,
+	"actions": [
+		{ "type": "wait-for-preview" },
+		{ "type": "screenshot", "file": "original.ppm" },
+		{ "type": "set-shape", "value": "circle" },
+		{ "type": "screenshot", "file": "circle.ppm" },
+		{ "type": "set-theme", "value": "ocean" },
+		{ "type": "set-shape", "value": "rounded-square" },
+		{ "type": "screenshot", "file": "rounded-square.ppm" },
+		{ "type": "set-shape", "value": "diamond" },
+		{ "type": "screenshot", "file": "diamond.ppm" },
+		{ "type": "set-shape", "value": "rectangle-y" },
+		{ "type": "screenshot", "file": "rectangle-y.ppm" },
+		{ "type": "set-shape", "value": "rectangle-x" },
+		{ "type": "screenshot", "file": "rectangle-x.ppm" },
+		{ "type": "set-shape", "value": "rounded-square" },
+		{ "type": "set-fit", "value": "contain" },
+		{ "type": "set-ring-thickness", "value": 10 },
+		{ "type": "set-corner-roundness", "value": 60 },
+		{ "type": "resize-cycle", "repetitions": 10 },
+		{ "type": "restart-camera", "repetitions": 5 },
+		{ "type": "suspend-resume", "milliseconds": 100 },
+		{ "type": "delay", "milliseconds": 250 },
+		{ "type": "screenshot", "file": "overlay.ppm" },
+		{ "type": "diagnostics", "file": "diagnostics.json" },
+		{ "type": "quit" }
+	]
+}

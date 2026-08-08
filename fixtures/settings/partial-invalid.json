@@ -1,0 +1,20 @@
+{
+	"schemaVersion": 1,
+	"language": "pt-BR",
+	"selectedCameraDeviceId": "",
+	"appearance": {
+		"shape": "triangle",
+		"size": 12,
+		"ringColor": "green",
+		"ringAccentColor": "#93A1B8",
+		"ringThickness": "thick",
+		"cornerRoundness": 255,
+		"fit": "stretch"
+	},
+	"window": {
+		"x": -200,
+		"y": 120,
+		"width": 20,
+		"height": 224
+	}
+}

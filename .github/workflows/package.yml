@@ -1,0 +1,73 @@
+name: Package verification
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["rewrite/iced"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang libclang-dev libgl1-mesa-dri libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev mesa-vulkan-drivers xvfb
+      - uses: Swatinem/rust-cache@v2
+      - name: Install package tool
+        run: cargo install cargo-packager --version 0.11.8 --locked
+      - name: Build packages
+        run: |
+          cargo build --workspace --release --locked
+          cargo packager --config Packager.toml --formats appimage,deb
+      - name: Test portable, install, uninstall, and reinstall paths
+        run: |
+          appimage="$(find target/packages -maxdepth 1 -name '*.AppImage' -print -quit)"
+          deb="$(find target/packages -maxdepth 1 -name '*.deb' -print -quit)"
+          scripts/test-linux-packages.sh "$appimage" "$deb" "$RUNNER_TEMP/camlet-package-linux"
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: camlet-linux-packages
+          path: |
+            target/packages/*.AppImage
+            target/packages/*.deb
+            ${{ runner.temp }}/camlet-package-linux/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+      - name: Install package tool
+        run: cargo install cargo-packager --version 0.11.8 --locked
+      - name: Build package
+        run: |
+          cargo build --workspace --release --locked
+          cargo packager --config Packager.toml --formats nsis
+      - name: Test install, uninstall, and reinstall paths
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem target/packages -Filter "*.exe" | Select-Object -First 1
+          if ($null -eq $installer) { throw "NSIS installer was not generated" }
+          scripts/test-windows-package.ps1 -Installer $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/camlet-package-windows"
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: camlet-windows-package
+          path: |
+            target/packages/*.exe
+            ${{ runner.temp }}/camlet-package-windows/SHA256SUMS.json
+          if-no-files-found: error
+          retention-days: 14

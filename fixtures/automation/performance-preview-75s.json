@@ -1,0 +1,9 @@
+{
+	"schemaVersion": 1,
+	"actions": [
+		{ "type": "wait-for-preview" },
+		{ "type": "delay", "milliseconds": 75000 },
+		{ "type": "diagnostics", "file": "diagnostics.json" },
+		{ "type": "quit" }
+	]
+}

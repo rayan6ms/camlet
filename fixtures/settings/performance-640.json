@@ -1,0 +1,20 @@
+{
+	"schemaVersion": 1,
+	"language": "en",
+	"selectedCameraDeviceId": "synthetic",
+	"appearance": {
+		"shape": "circle",
+		"size": 640,
+		"ringColor": "#7CE2C6",
+		"ringAccentColor": "#C8FFF1",
+		"ringThickness": 4,
+		"cornerRoundness": 24,
+		"fit": "cover"
+	},
+	"window": {
+		"x": 48,
+		"y": 48,
+		"width": 640,
+		"height": 640
+	}
+}

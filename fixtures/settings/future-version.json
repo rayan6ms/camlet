@@ -1,0 +1,22 @@
+{
+	"schemaVersion": 999,
+	"language": "en",
+	"appearance": {
+		"shape": "circle",
+		"size": 224,
+		"ringColor": "#7CE2C6",
+		"ringAccentColor": "#C8FFF1",
+		"ringThickness": 4,
+		"cornerRoundness": 26,
+		"fit": "cover"
+	},
+	"window": {
+		"x": 48,
+		"y": 48,
+		"width": 224,
+		"height": 224
+	},
+	"futureFieldThatMustNotBeClobbered": {
+		"enabled": true
+	}
+}
