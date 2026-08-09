@@ -17,6 +17,10 @@ use crate::language::AppLanguage;
 
 /// Settings schema written by this native release.
 pub const SETTINGS_SCHEMA_VERSION: u32 = 1;
+/// Capture rates exposed by the context menu.
+pub const CAMERA_FPS_OPTIONS: [u8; 4] = [15, 24, 30, 60];
+/// Capture rate used when no valid saved value exists.
+pub const DEFAULT_CAMERA_FPS: u8 = 30;
 
 /// Complete native settings document.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,6 +32,8 @@ pub struct AppSettings {
     pub language: AppLanguage,
     /// Selected backend camera identifier.
     pub selected_camera_device_id: Option<String>,
+    /// Requested camera capture rate in frames per second.
+    pub camera_fps: u8,
     /// Overlay appearance.
     pub appearance: AppearanceSettings,
     /// Last logical host-window bounds.
@@ -40,6 +46,7 @@ impl Default for AppSettings {
             schema_version: SETTINGS_SCHEMA_VERSION,
             language: AppLanguage::System,
             selected_camera_device_id: None,
+            camera_fps: DEFAULT_CAMERA_FPS,
             appearance: AppearanceSettings::default(),
             window: WindowState::default(),
         }
@@ -170,6 +177,15 @@ fn parse_settings_value(value: &Value) -> ParsedSettings {
         });
     let selected_camera_device_id =
         parse_device_id(root.get("selectedCameraDeviceId"), &mut repaired);
+    let camera_fps_value = root.get("cameraFps");
+    let camera_fps = camera_fps_value
+        .and_then(Value::as_u64)
+        .and_then(|value| u8::try_from(value).ok())
+        .filter(|value| CAMERA_FPS_OPTIONS.contains(value))
+        .unwrap_or_else(|| {
+            mark_if_present(camera_fps_value, "cameraFps", &mut repaired);
+            DEFAULT_CAMERA_FPS
+        });
     let appearance = parse_appearance(root, &defaults.appearance, &mut repaired);
     let window = parse_window(root, &defaults.window, &mut repaired);
 
@@ -178,6 +194,7 @@ fn parse_settings_value(value: &Value) -> ParsedSettings {
             schema_version: SETTINGS_SCHEMA_VERSION,
             language,
             selected_camera_device_id,
+            camera_fps,
             appearance,
             window,
         },
@@ -391,7 +408,10 @@ mod tests {
 
     use proptest::prelude::*;
 
-    use super::{AppSettings, load_settings, parse_settings_json, write_settings};
+    use super::{
+        AppSettings, CAMERA_FPS_OPTIONS, DEFAULT_CAMERA_FPS, load_settings, parse_settings_json,
+        write_settings,
+    };
     use crate::appearance::{AppearanceSettings, HexColor, OverlayShape, PreviewFitMode};
     use crate::language::AppLanguage;
 
@@ -400,6 +420,7 @@ mod tests {
         let parsed = parse_settings_json(
             r#"{
                 "language": "pt-BR",
+                "cameraFps": 144,
                 "appearance": {
                     "shape": "circle",
                     "size": 10,
@@ -413,6 +434,7 @@ mod tests {
         );
 
         assert_eq!(parsed.settings.language, AppLanguage::PortugueseBrazil);
+        assert_eq!(parsed.settings.camera_fps, DEFAULT_CAMERA_FPS);
         assert_eq!(
             parsed.settings.appearance,
             AppearanceSettings {
@@ -420,7 +442,7 @@ mod tests {
                 ..AppearanceSettings::default()
             }
         );
-        assert_eq!(parsed.repaired_fields.len(), 6);
+        assert_eq!(parsed.repaired_fields.len(), 7);
     }
 
     #[test]
@@ -440,6 +462,7 @@ mod tests {
         assert!(current.valid_json);
         assert!(current.compatible_for_write);
         assert_eq!(current.source_schema_version, Some(1));
+        assert_eq!(current.settings.camera_fps, 60);
         assert_eq!(current.settings.appearance.shape, OverlayShape::Diamond);
         assert_eq!(current.settings.appearance.fit, PreviewFitMode::Contain);
         assert!(current.repaired_fields.is_empty());
@@ -448,6 +471,7 @@ mod tests {
             "../../../fixtures/settings/partial-invalid.json"
         ));
         assert_eq!(partial.settings.language, AppLanguage::PortugueseBrazil);
+        assert_eq!(partial.settings.camera_fps, DEFAULT_CAMERA_FPS);
         assert_eq!(
             partial.settings.appearance.ring_accent_color,
             HexColor::opaque(0x93_A1_B8)
@@ -500,6 +524,7 @@ mod tests {
             prop_assert!((96..=640).contains(&parsed.settings.appearance.size));
             prop_assert!(parsed.settings.appearance.ring_thickness <= 10);
             prop_assert!(parsed.settings.appearance.corner_roundness <= 72);
+            prop_assert!(CAMERA_FPS_OPTIONS.contains(&parsed.settings.camera_fps));
             prop_assert!(parsed.settings.window.width >= 176);
             prop_assert!(parsed.settings.window.height >= 176);
         }

@@ -110,6 +110,8 @@ pub struct Catalog {
     pub retry_camera: &'static str,
     /// Camera device label.
     pub camera_device: &'static str,
+    /// Camera capture-rate label.
+    pub camera_fps: &'static str,
     /// Active camera label.
     pub active_camera: &'static str,
     /// Camera status label.
@@ -176,6 +178,7 @@ pub const ENGLISH: Catalog = Catalog {
     language_portuguese_brazil: "Português (Brasil)",
     retry_camera: "Retry camera",
     camera_device: "Camera device",
+    camera_fps: "Camera frame rate",
     active_camera: "Active device",
     preview_state: "Preview state",
     no_devices: "No camera devices",
@@ -240,6 +243,7 @@ pub const PORTUGUESE_BRAZIL: Catalog = Catalog {
     language_portuguese_brazil: "Português (Brasil)",
     retry_camera: "Tentar câmera novamente",
     camera_device: "Dispositivo de câmera",
+    camera_fps: "Taxa de quadros da câmera",
     active_camera: "Dispositivo ativo",
     preview_state: "Estado da visualização",
     no_devices: "Nenhuma câmera disponível",

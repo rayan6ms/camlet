@@ -33,7 +33,7 @@
 - original camera aspect ratio by default
 - circle, rounded square, portrait, landscape, and diamond shapes
 - cover and contain preview fitting
-- camera selection, recovery states, and a visible retry placeholder
+- camera selection, selectable 15/24/30/60 FPS capture, recovery states, and a visible retry placeholder
 - saved position, size, appearance, camera, and language
 - English and Brazilian Portuguese interfaces
 - deterministic automation and visual regression coverage
@@ -111,8 +111,10 @@ Direct3D 12, or OpenGL implementation.
 
 ### Linux position or always-on-top restrictions
 
-Some Wayland compositors restrict absolute positioning and z-order. Use an X11
-session or Xwayland when those controls are required.
+Native Wayland compositors restrict absolute positioning and z-order. Camlet
+automatically uses X11/Xwayland when `DISPLAY` is available so dragging and the
+arrow-key shortcuts remain functional. Set `WINIT_UNIX_BACKEND=wayland` to opt
+into native Wayland and accept those compositor restrictions.
 
 ## Privacy
 

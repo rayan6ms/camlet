@@ -2,6 +2,7 @@
 	"schemaVersion": 1,
 	"language": "pt-BR",
 	"selectedCameraDeviceId": "camera-current",
+	"cameraFps": 60,
 	"appearance": {
 		"shape": "diamond",
 		"size": 320,

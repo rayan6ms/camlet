@@ -4,6 +4,7 @@ use crate::appearance::{
     CORNER_ROUNDNESS_OPTIONS, OverlayShape, PreviewFitMode, RING_THICKNESS_OPTIONS, ThemeId,
 };
 use crate::language::AppLanguage;
+use crate::settings::CAMERA_FPS_OPTIONS;
 use crate::state::{AppState, CameraOption, CameraStatus};
 
 /// A selectable value and whether it matches current state.
@@ -39,6 +40,8 @@ pub struct MenuModel {
     pub cameras: Vec<CameraChoice>,
     /// Preview fit choices.
     pub fit_modes: Vec<Choice<PreviewFitMode>>,
+    /// Camera capture-rate choices.
+    pub camera_fps: Vec<Choice<u8>>,
     /// Ring widths.
     pub ring_thicknesses: Vec<Choice<u8>>,
     /// Corner radii.
@@ -63,6 +66,7 @@ impl MenuModel {
                 .map(|camera| camera_choice(camera, state.active_camera_id.as_deref()))
                 .collect(),
             fit_modes: choices(PreviewFitMode::ALL, Some(state.settings.appearance.fit)),
+            camera_fps: choices(CAMERA_FPS_OPTIONS, Some(state.settings.camera_fps)),
             ring_thicknesses: choices(
                 RING_THICKNESS_OPTIONS,
                 Some(state.settings.appearance.ring_thickness),
@@ -134,6 +138,14 @@ mod tests {
         assert_eq!(
             model
                 .ring_thicknesses
+                .iter()
+                .filter(|choice| choice.selected)
+                .count(),
+            1
+        );
+        assert_eq!(
+            model
+                .camera_fps
                 .iter()
                 .filter(|choice| choice.selected)
                 .count(),

@@ -493,8 +493,8 @@ fn choose_camera_format(formats: &[CameraFormat], request: CaptureRequest) -> Op
                     .saturating_mul(height_delta.unsigned_abs());
             let frame_rate_error = format.frame_rate().abs_diff(requested_fps);
             (
-                resolution_error,
                 frame_rate_error,
+                resolution_error,
                 frame_format_preference(format.format()),
             )
         })
@@ -1067,6 +1067,25 @@ mod tests {
         )
         .unwrap_or_else(|| unreachable!());
         assert_eq!((selected.width(), selected.height()), (640, 480));
+    }
+
+    #[test]
+    fn format_negotiation_honors_requested_fps_before_resolution() {
+        let formats = [
+            CameraFormat::new_from(640, 480, FrameFormat::YUYV, 30),
+            CameraFormat::new_from(320, 240, FrameFormat::MJPEG, 60),
+        ];
+        let selected = choose_camera_format(
+            &formats,
+            CaptureRequest {
+                width: 640,
+                height: 480,
+                frame_interval: Duration::from_nanos(1_000_000_000 / 60),
+            },
+        )
+        .unwrap_or_else(|| unreachable!());
+
+        assert_eq!(selected.frame_rate(), 60);
     }
 
     #[test]

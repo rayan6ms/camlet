@@ -8,6 +8,7 @@ use crate::appearance::{
 use crate::geometry::{RESIZE_STEP, WindowState, move_window, resize_square_window};
 use crate::language::AppLanguage;
 use crate::settings::AppSettings;
+use crate::settings::CAMERA_FPS_OPTIONS;
 
 /// Camera lifecycle states shown by Camlet.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,6 +106,7 @@ impl AppState {
                 self.camera_status = CameraStatus::Loading;
                 vec![Effect::PersistSettings, Effect::StartCamera(id)]
             }
+            Action::SetCameraFps(fps) => self.set_camera_fps(fps),
             Action::DevicesChanged(cameras) => self.replace_cameras(cameras),
             Action::CameraReady => {
                 self.camera_status = CameraStatus::Preview;
@@ -168,6 +170,19 @@ impl AppState {
             Action::OpenAbout => vec![Effect::OpenAbout],
             Action::Quit => vec![Effect::StopCamera, Effect::FlushSettings, Effect::Quit],
         }
+    }
+
+    fn set_camera_fps(&mut self, fps: u8) -> Vec<Effect> {
+        if !CAMERA_FPS_OPTIONS.contains(&fps) || self.settings.camera_fps == fps {
+            return Vec::new();
+        }
+        self.settings.camera_fps = fps;
+        self.camera_status = CameraStatus::Loading;
+        let restart = self
+            .active_camera_id
+            .clone()
+            .map_or(Effect::EnumerateCameras, Effect::StartCamera);
+        vec![Effect::PersistSettings, restart]
     }
 
     fn replace_cameras(&mut self, cameras: Vec<CameraOption>) -> Vec<Effect> {
@@ -237,6 +252,8 @@ pub enum Action {
     SetLanguage(AppLanguage),
     /// Select a camera by backend ID.
     SetCamera(String),
+    /// Change the requested camera capture rate.
+    SetCameraFps(u8),
     /// Replace enumerated devices.
     DevicesChanged(Vec<CameraOption>),
     /// Capture produced its first usable frame.
@@ -292,6 +309,7 @@ mod tests {
     };
     use crate::language::AppLanguage;
     use crate::settings::AppSettings;
+    use crate::settings::CAMERA_FPS_OPTIONS;
 
     #[test]
     fn first_device_is_selected_when_saved_device_disappears() {
@@ -375,6 +393,28 @@ mod tests {
                 state.update(Action::RetryCamera),
                 vec![Effect::StartCamera("saved".to_owned())]
             );
+        }
+    }
+
+    #[test]
+    fn changing_fps_persists_and_restarts_the_active_camera() {
+        let mut state = AppState::new(AppSettings::default());
+        state.active_camera_id = Some("camera".to_owned());
+
+        assert_eq!(
+            state.update(Action::SetCameraFps(60)),
+            vec![
+                Effect::PersistSettings,
+                Effect::StartCamera("camera".to_owned())
+            ]
+        );
+        assert_eq!(state.settings.camera_fps, 60);
+        assert!(state.update(Action::SetCameraFps(59)).is_empty());
+        assert_eq!(state.settings.camera_fps, 60);
+
+        for fps in CAMERA_FPS_OPTIONS {
+            let _ = state.update(Action::SetCameraFps(fps));
+            assert_eq!(state.settings.camera_fps, fps);
         }
     }
 

@@ -2,6 +2,7 @@
 	"schemaVersion": 1,
 	"language": "pt-BR",
 	"selectedCameraDeviceId": "",
+	"cameraFps": 144,
 	"appearance": {
 		"shape": "triangle",
 		"size": 12,
