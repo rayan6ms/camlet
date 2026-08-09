@@ -18,6 +18,7 @@ bytemuck.workspace = true
 camlet-camera = { path = "../camlet-camera", version = "=0.2.0" }
 camlet-core = { path = "../camlet-core", version = "=0.2.0" }
 directories.workspace = true
+futures-timer.workspace = true
 iced.workspace = true
 num-traits.workspace = true
 serde.workspace = true
@@ -25,6 +26,9 @@ serde_json.workspace = true
 sys-locale.workspace = true
 thiserror.workspace = true
 webbrowser.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb.workspace = true
 
 [dev-dependencies]
 iced_test = "0.14.0"

@@ -3,8 +3,10 @@
 	"actions": [
 		{ "type": "wait-for-preview" },
 		{ "type": "open-menu" },
+		{ "type": "menu-screenshot", "file": "root-menu.ppm" },
 		{ "type": "open-advanced-menu" },
 		{ "type": "delay", "milliseconds": 1000 },
+		{ "type": "menu-screenshot", "file": "advanced-menu.ppm" },
 		{ "type": "diagnostics", "file": "diagnostics.json" },
 		{ "type": "quit" }
 	]

@@ -2,6 +2,7 @@
 	"schemaVersion": 1,
 	"language": "en",
 	"selectedCameraDeviceId": "synthetic",
+	"cameraResolution": "640x480",
 	"appearance": {
 		"shape": "circle",
 		"size": 640,

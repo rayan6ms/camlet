@@ -7,8 +7,9 @@ use crate::appearance::{
 };
 use crate::geometry::{RESIZE_STEP, WindowState, move_window, resize_square_window};
 use crate::language::AppLanguage;
-use crate::settings::AppSettings;
-use crate::settings::CAMERA_FPS_OPTIONS;
+use crate::settings::{
+    AppSettings, CAMERA_FPS_OPTIONS, CAMERA_RESOLUTION_OPTIONS, CameraResolution,
+};
 
 /// Camera lifecycle states shown by Camlet.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,6 +108,7 @@ impl AppState {
                 vec![Effect::PersistSettings, Effect::StartCamera(id)]
             }
             Action::SetCameraFps(fps) => self.set_camera_fps(fps),
+            Action::SetCameraResolution(resolution) => self.set_camera_resolution(resolution),
             Action::DevicesChanged(cameras) => self.replace_cameras(cameras),
             Action::CameraReady => {
                 self.camera_status = CameraStatus::Preview;
@@ -185,6 +187,21 @@ impl AppState {
         vec![Effect::PersistSettings, restart]
     }
 
+    fn set_camera_resolution(&mut self, resolution: CameraResolution) -> Vec<Effect> {
+        if !CAMERA_RESOLUTION_OPTIONS.contains(&resolution)
+            || self.settings.camera_resolution == resolution
+        {
+            return Vec::new();
+        }
+        self.settings.camera_resolution = resolution;
+        self.camera_status = CameraStatus::Loading;
+        let restart = self
+            .active_camera_id
+            .clone()
+            .map_or(Effect::EnumerateCameras, Effect::StartCamera);
+        vec![Effect::PersistSettings, restart]
+    }
+
     fn replace_cameras(&mut self, cameras: Vec<CameraOption>) -> Vec<Effect> {
         let previous_active = self.active_camera_id.clone();
         let previous_status = self.camera_status;
@@ -254,6 +271,8 @@ pub enum Action {
     SetCamera(String),
     /// Change the requested camera capture rate.
     SetCameraFps(u8),
+    /// Change the requested camera capture resolution.
+    SetCameraResolution(CameraResolution),
     /// Replace enumerated devices.
     DevicesChanged(Vec<CameraOption>),
     /// Capture produced its first usable frame.
@@ -309,7 +328,7 @@ mod tests {
     };
     use crate::language::AppLanguage;
     use crate::settings::AppSettings;
-    use crate::settings::CAMERA_FPS_OPTIONS;
+    use crate::settings::{CAMERA_FPS_OPTIONS, CAMERA_RESOLUTION_OPTIONS, CameraResolution};
 
     #[test]
     fn first_device_is_selected_when_saved_device_disappears() {
@@ -415,6 +434,29 @@ mod tests {
         for fps in CAMERA_FPS_OPTIONS {
             let _ = state.update(Action::SetCameraFps(fps));
             assert_eq!(state.settings.camera_fps, fps);
+        }
+    }
+
+    #[test]
+    fn changing_resolution_persists_and_restarts_the_active_camera() {
+        let mut state = AppState::new(AppSettings::default());
+        state.active_camera_id = Some("camera".to_owned());
+
+        assert_eq!(
+            state.update(Action::SetCameraResolution(CameraResolution::R1280x720)),
+            vec![
+                Effect::PersistSettings,
+                Effect::StartCamera("camera".to_owned())
+            ]
+        );
+        assert_eq!(
+            state.settings.camera_resolution,
+            CameraResolution::R1280x720
+        );
+
+        for resolution in CAMERA_RESOLUTION_OPTIONS {
+            let _ = state.update(Action::SetCameraResolution(resolution));
+            assert_eq!(state.settings.camera_resolution, resolution);
         }
     }
 

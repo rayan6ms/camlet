@@ -3,6 +3,7 @@
 	"language": "pt-BR",
 	"selectedCameraDeviceId": "camera-current",
 	"cameraFps": 60,
+	"cameraResolution": "1280x720",
 	"appearance": {
 		"shape": "diamond",
 		"size": 320,

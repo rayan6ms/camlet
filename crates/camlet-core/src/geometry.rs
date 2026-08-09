@@ -109,20 +109,19 @@ pub const fn move_window(state: WindowState, delta_x: i32, delta_y: i32) -> Wind
     }
 }
 
-/// Resizes a square window around its center.
+/// Resizes a square window while keeping its top-left corner stable.
+///
+/// Native window APIs generally expose move and resize as separate asynchronous operations.
+/// Keeping the anchor stable lets the adapter resize in one operation without visible flicker.
 #[must_use]
-#[allow(clippy::similar_names)]
 pub fn resize_square_window(state: WindowState, delta: i16, maximum: u16) -> WindowState {
     let maximum = maximum.max(MINIMUM_WINDOW_SIZE);
     let next = (i32::from(state.width) + i32::from(delta))
         .clamp(i32::from(MINIMUM_WINDOW_SIZE), i32::from(maximum));
     let size = u16::try_from(next).unwrap_or(MINIMUM_WINDOW_SIZE);
-    let center_x_twice = i64::from(state.x) * 2 + i64::from(state.width);
-    let center_y_twice = i64::from(state.y) * 2 + i64::from(state.height);
-
     WindowState {
-        x: clamp_i64_to_i32(divide_round_nearest(center_x_twice - i64::from(size), 2)),
-        y: clamp_i64_to_i32(divide_round_nearest(center_y_twice - i64::from(size), 2)),
+        x: state.x,
+        y: state.y,
         width: size,
         height: size,
     }
@@ -227,14 +226,6 @@ pub fn fit_frame(
     })
 }
 
-const fn divide_round_nearest(numerator: i64, denominator: i64) -> i64 {
-    if numerator >= 0 {
-        (numerator + denominator / 2) / denominator
-    } else {
-        (numerator - denominator / 2) / denominator
-    }
-}
-
 fn clamp_i64_to_i32(value: i64) -> i32 {
     i32::try_from(value).unwrap_or_else(|_| {
         if value.is_negative() {
@@ -283,12 +274,12 @@ mod tests {
     }
 
     #[test]
-    fn resize_keeps_center_and_limit() {
+    fn resize_keeps_stable_anchor_and_limit() {
         assert_eq!(
             resize_square_window(WindowState::default(), 800, 300),
             WindowState {
-                x: 10,
-                y: 10,
+                x: 48,
+                y: 48,
                 width: 300,
                 height: 300,
             }

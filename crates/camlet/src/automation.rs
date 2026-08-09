@@ -6,6 +6,7 @@ use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use camlet_core::appearance::{OverlayShape, PreviewFitMode, ThemeId};
+use camlet_core::settings::CameraResolution;
 use serde::Deserialize;
 
 const MAX_ACTIONS: usize = 10_000;
@@ -27,6 +28,8 @@ pub enum AutomationAction {
     SetRingThickness(u8),
     /// Select a corner radius.
     SetCornerRoundness(u8),
+    /// Select a camera capture resolution.
+    SetCameraResolution(CameraResolution),
     /// Resize by one product step.
     ResizeStep { grow: bool },
     /// Restart the selected camera.
@@ -41,6 +44,8 @@ pub enum AutomationAction {
     OpenAdvancedMenu,
     /// Capture the real compositor output into this validated relative filename.
     Screenshot(String),
+    /// Capture the open context-menu window into this validated relative filename.
+    MenuScreenshot(String),
     /// Export redacted diagnostics into this validated relative filename.
     Diagnostics(String),
     /// Write completion evidence and shut down.
@@ -93,6 +98,11 @@ impl AutomationSession {
     /// Takes the next action.
     pub fn next(&mut self) -> Option<AutomationAction> {
         self.actions.pop_front()
+    }
+
+    /// Returns an incomplete action to the front of the scenario queue.
+    pub fn retry(&mut self, action: AutomationAction) {
+        self.actions.push_front(action);
     }
 
     /// Returns whether the readiness marker has been written.
@@ -167,6 +177,7 @@ enum ScriptAction {
     SetFit { value: PreviewFitMode },
     SetRingThickness { value: u8 },
     SetCornerRoundness { value: u8 },
+    SetCameraResolution { value: CameraResolution },
     ResizeCycle { repetitions: u16 },
     RestartCamera { repetitions: u16 },
     SuspendResume { milliseconds: u64 },
@@ -174,6 +185,7 @@ enum ScriptAction {
     OpenMenu,
     OpenAdvancedMenu,
     Screenshot { file: String },
+    MenuScreenshot { file: String },
     Diagnostics { file: String },
     Quit,
 }
@@ -201,6 +213,9 @@ fn validate_and_expand(script: Script) -> Result<VecDeque<AutomationAction>, Aut
             ScriptAction::SetCornerRoundness { value } if value <= 72 => {
                 actions.push_back(AutomationAction::SetCornerRoundness(value));
             }
+            ScriptAction::SetCameraResolution { value } => {
+                actions.push_back(AutomationAction::SetCameraResolution(value));
+            }
             ScriptAction::ResizeCycle { repetitions } if repetitions <= MAX_REPEAT => {
                 for _ in 0..repetitions {
                     actions.push_back(AutomationAction::ResizeStep { grow: true });
@@ -227,6 +242,9 @@ fn validate_and_expand(script: Script) -> Result<VecDeque<AutomationAction>, Aut
             }
             ScriptAction::Screenshot { file } if valid_filename(&file) => {
                 actions.push_back(AutomationAction::Screenshot(file));
+            }
+            ScriptAction::MenuScreenshot { file } if valid_filename(&file) => {
+                actions.push_back(AutomationAction::MenuScreenshot(file));
             }
             ScriptAction::Diagnostics { file } if valid_filename(&file) => {
                 actions.push_back(AutomationAction::Diagnostics(file));
@@ -304,6 +322,8 @@ mod tests {
                 .unwrap_or_else(|error| unreachable!("{error}"))
         );
         assert!(output.join("ready.json").is_file());
+        assert_eq!(session.next(), Some(AutomationAction::WaitForPreview));
+        session.retry(AutomationAction::WaitForPreview);
         assert_eq!(session.next(), Some(AutomationAction::WaitForPreview));
         assert_eq!(
             session.next(),

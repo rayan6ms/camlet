@@ -261,6 +261,7 @@ impl FrameSource for ScriptedFrameSource {
 #[derive(Default)]
 pub struct NokhwaFrameSource {
     camera: Option<Camera>,
+    active_index: Option<CameraIndex>,
     devices: Vec<CachedCameraDevice>,
     next_sequence: u64,
 }
@@ -276,6 +277,7 @@ impl std::fmt::Debug for NokhwaFrameSource {
         formatter
             .debug_struct("NokhwaFrameSource")
             .field("running", &self.camera.is_some())
+            .field("has_active_index", &self.active_index.is_some())
             .field("device_count", &self.devices.len())
             .field("next_sequence", &self.next_sequence)
             .finish()
@@ -303,38 +305,36 @@ impl FrameSource for NokhwaFrameSource {
         if request.width == 0 || request.height == 0 || request.frame_interval.is_zero() {
             return Err(CameraError::Backend);
         }
-        self.stop();
         ensure_nokhwa_initialized()?;
         performance_trace("camera.initialize", started);
         let index = self.resolve_device_index(device_id)?;
+
+        if self.active_index.as_ref() == Some(&index)
+            && let Some(camera) = self.camera.as_mut()
+        {
+            if camera.is_stream_open() {
+                camera
+                    .stop_stream()
+                    .map_err(|error| map_nokhwa_error(&error))?;
+            }
+            configure_camera(camera, request)?;
+            let stream_started = Instant::now();
+            camera
+                .open_stream()
+                .map_err(|error| map_nokhwa_error(&error))?;
+            performance_trace("camera.stream", stream_started);
+            performance_trace("camera.restart-total", started);
+            self.next_sequence = 0;
+            return Ok(());
+        }
+
+        self.stop();
         let open_started = Instant::now();
         let requested = RequestedFormat::new::<RgbAFormat>(RequestedFormatType::None);
-        let mut camera = Camera::new(index, requested).map_err(|error| map_nokhwa_error(&error))?;
+        let mut camera =
+            Camera::new(index.clone(), requested).map_err(|error| map_nokhwa_error(&error))?;
         performance_trace("camera.open", open_started);
-        let formats_started = Instant::now();
-        if let Ok(formats) = camera.compatible_camera_formats()
-            && let Some(format) = choose_camera_format(&formats, request)
-        {
-            performance_trace("camera.formats", formats_started);
-            if camera.camera_format() != format {
-                let configure_started = Instant::now();
-                let exact = RequestedFormat::new::<RgbAFormat>(RequestedFormatType::Exact(format));
-                camera
-                    .set_camera_requset(exact)
-                    .map_err(|error| map_nokhwa_error(&error))?;
-                performance_trace("camera.configure", configure_started);
-            }
-        }
-        if std::env::var_os("CAMLET_TRACE_PERFORMANCE").is_some() {
-            let format = camera.camera_format();
-            eprintln!(
-                "camlet-performance: camera.selected-format={}x{}@{} {:?}",
-                format.width(),
-                format.height(),
-                format.frame_rate(),
-                format.format()
-            );
-        }
+        configure_camera(&mut camera, request)?;
         let stream_started = Instant::now();
         camera
             .open_stream()
@@ -342,6 +342,7 @@ impl FrameSource for NokhwaFrameSource {
         performance_trace("camera.stream", stream_started);
         performance_trace("camera.start-total", started);
         self.camera = Some(camera);
+        self.active_index = Some(index);
         self.next_sequence = 0;
         Ok(())
     }
@@ -382,6 +383,7 @@ impl FrameSource for NokhwaFrameSource {
             let _ = camera.stop_stream();
         }
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(camera)));
+        self.active_index = None;
         self.next_sequence = 0;
     }
 }
@@ -393,6 +395,34 @@ fn performance_trace(stage: &str, started: Instant) {
             started.elapsed().as_micros()
         );
     }
+}
+
+fn configure_camera(camera: &mut Camera, request: CaptureRequest) -> Result<(), CameraError> {
+    let formats_started = Instant::now();
+    if let Ok(formats) = camera.compatible_camera_formats()
+        && let Some(format) = choose_camera_format(&formats, request)
+    {
+        performance_trace("camera.formats", formats_started);
+        if camera.camera_format() != format {
+            let configure_started = Instant::now();
+            let exact = RequestedFormat::new::<RgbAFormat>(RequestedFormatType::Exact(format));
+            camera
+                .set_camera_requset(exact)
+                .map_err(|error| map_nokhwa_error(&error))?;
+            performance_trace("camera.configure", configure_started);
+        }
+    }
+    if std::env::var_os("CAMLET_TRACE_PERFORMANCE").is_some() {
+        let format = camera.camera_format();
+        eprintln!(
+            "camlet-performance: camera.selected-format={}x{}@{} {:?}",
+            format.width(),
+            format.height(),
+            format.frame_rate(),
+            format.format()
+        );
+    }
+    Ok(())
 }
 
 impl NokhwaFrameSource {
@@ -535,8 +565,8 @@ fn choose_camera_format(formats: &[CameraFormat], request: CaptureRequest) -> Op
                     .saturating_mul(height_delta.unsigned_abs());
             let frame_rate_error = format.frame_rate().abs_diff(requested_fps);
             (
-                frame_rate_error,
                 resolution_error,
+                frame_rate_error,
                 frame_format_preference(format.format()),
             )
         })
@@ -613,11 +643,26 @@ pub enum CameraWorkerEvent {
 /// Cloneable receiving end used by an async UI adapter.
 #[derive(Debug, Clone)]
 pub struct CameraWorkerEvents {
-    control_receiver: Arc<Mutex<Receiver<CameraWorkerEvent>>>,
-    frame_receiver: Arc<Mutex<Receiver<CameraWorkerEvent>>>,
+    control: Arc<Mutex<Receiver<CameraWorkerEvent>>>,
+    frames: Arc<Mutex<Receiver<CameraWorkerEvent>>>,
+    notifications: async_channel::Receiver<()>,
 }
 
 impl CameraWorkerEvents {
+    /// Waits asynchronously for one worker event without occupying an executor thread.
+    pub async fn recv(&self) -> Option<CameraWorkerEvent> {
+        loop {
+            match self.try_recv() {
+                Ok(event) => return Some(event),
+                Err(TryRecvError::Disconnected) => return None,
+                Err(TryRecvError::Empty) => {}
+            }
+            if self.notifications.recv().await.is_err() {
+                return self.try_recv().ok();
+            }
+        }
+    }
+
     /// Waits for one worker event.
     ///
     /// # Errors
@@ -626,22 +671,7 @@ impl CameraWorkerEvents {
     pub fn recv_timeout(&self, timeout: Duration) -> Result<CameraWorkerEvent, RecvTimeoutError> {
         let deadline = Instant::now() + timeout;
         loop {
-            let control_result = self
-                .control_receiver
-                .lock()
-                .map_err(|_| RecvTimeoutError::Disconnected)?
-                .try_recv();
-            match control_result {
-                Ok(event) => return Ok(event),
-                Err(TryRecvError::Disconnected) => return Err(RecvTimeoutError::Disconnected),
-                Err(TryRecvError::Empty) => {}
-            }
-            let frame_result = self
-                .frame_receiver
-                .lock()
-                .map_err(|_| RecvTimeoutError::Disconnected)?
-                .try_recv();
-            match frame_result {
+            match self.try_recv() {
                 Ok(event) => return Ok(event),
                 Err(TryRecvError::Disconnected) => return Err(RecvTimeoutError::Disconnected),
                 Err(TryRecvError::Empty) => {}
@@ -652,6 +682,23 @@ impl CameraWorkerEvents {
             }
             thread::sleep((deadline - now).min(Duration::from_millis(2)));
         }
+    }
+
+    fn try_recv(&self) -> Result<CameraWorkerEvent, TryRecvError> {
+        let control = self
+            .control
+            .lock()
+            .map_err(|_| TryRecvError::Disconnected)?
+            .try_recv();
+        match control {
+            Ok(event) => return Ok(event),
+            Err(TryRecvError::Disconnected) => return Err(TryRecvError::Disconnected),
+            Err(TryRecvError::Empty) => {}
+        }
+        self.frames
+            .lock()
+            .map_err(|_| TryRecvError::Disconnected)?
+            .try_recv()
     }
 }
 
@@ -677,6 +724,7 @@ impl CameraWorker {
         let (command_sender, command_receiver) = mpsc::sync_channel(8);
         let (control_sender, control_receiver) = mpsc::channel();
         let (frame_sender, frame_receiver) = mpsc::sync_channel(1);
+        let (notification_sender, notification_receiver) = async_channel::bounded(1);
         let dropped_frames = Arc::new(AtomicU64::new(0));
         let worker_dropped_frames = Arc::clone(&dropped_frames);
         let join = thread::Builder::new()
@@ -687,14 +735,16 @@ impl CameraWorker {
                     &command_receiver,
                     &control_sender,
                     &frame_sender,
+                    &notification_sender,
                     &worker_dropped_frames,
                 );
             })?;
         Ok(Self {
             commands: command_sender,
             events: CameraWorkerEvents {
-                control_receiver: Arc::new(Mutex::new(control_receiver)),
-                frame_receiver: Arc::new(Mutex::new(frame_receiver)),
+                control: Arc::new(Mutex::new(control_receiver)),
+                frames: Arc::new(Mutex::new(frame_receiver)),
+                notifications: notification_receiver,
             },
             join: Some(join),
             dropped_frames,
@@ -739,6 +789,7 @@ fn worker_loop(
     commands: &Receiver<CameraWorkerCommand>,
     control_events: &Sender<CameraWorkerEvent>,
     frame_events: &SyncSender<CameraWorkerEvent>,
+    event_notifications: &async_channel::Sender<()>,
     dropped_frames: &AtomicU64,
 ) {
     let mut running = false;
@@ -767,9 +818,9 @@ fn worker_loop(
                     {
                         break;
                     }
+                    notify_event(event_notifications);
                 }
                 CameraWorkerCommand::Start { device_id, request } => {
-                    source.stop();
                     frame_interval = request.frame_interval;
                     let result = source.start(device_id.as_deref(), request);
                     running = result.is_ok();
@@ -780,6 +831,7 @@ fn worker_loop(
                     {
                         break;
                     }
+                    notify_event(event_notifications);
                 }
                 CameraWorkerCommand::Stop => {
                     running = false;
@@ -787,6 +839,7 @@ fn worker_loop(
                     if control_events.send(CameraWorkerEvent::Stopped).is_err() {
                         break;
                     }
+                    notify_event(event_notifications);
                 }
                 CameraWorkerCommand::Shutdown => break,
             }
@@ -797,7 +850,7 @@ fn worker_loop(
             match source.latest_frame() {
                 Ok(Some(frame)) => match frame_events.try_send(CameraWorkerEvent::Frame(Ok(frame)))
                 {
-                    Ok(()) => {}
+                    Ok(()) => notify_event(event_notifications),
                     Err(TrySendError::Full(_)) => {
                         dropped_frames.fetch_add(1, Ordering::Relaxed);
                     }
@@ -813,6 +866,7 @@ fn worker_loop(
                     {
                         break;
                     }
+                    notify_event(event_notifications);
                 }
             }
             frames_until_refresh = frames_until_refresh.saturating_sub(1);
@@ -823,6 +877,7 @@ fn worker_loop(
                 {
                     break;
                 }
+                notify_event(event_notifications);
                 frames_until_refresh = 150;
             }
             if let Some(remaining) = frame_interval.checked_sub(capture_started.elapsed()) {
@@ -832,6 +887,11 @@ fn worker_loop(
     }
     source.stop();
     let _ = control_events.send(CameraWorkerEvent::Stopped);
+    notify_event(event_notifications);
+}
+
+fn notify_event(notifications: &async_channel::Sender<()>) {
+    let _ = notifications.try_send(());
 }
 
 fn generate_synthetic_frame(
@@ -1116,7 +1176,7 @@ mod tests {
     }
 
     #[test]
-    fn format_negotiation_honors_requested_fps_before_resolution() {
+    fn format_negotiation_honors_requested_resolution_before_fps() {
         let formats = [
             CameraFormat::new_from(640, 480, FrameFormat::YUYV, 30),
             CameraFormat::new_from(320, 240, FrameFormat::MJPEG, 60),
@@ -1131,7 +1191,8 @@ mod tests {
         )
         .unwrap_or_else(|| unreachable!());
 
-        assert_eq!(selected.frame_rate(), 60);
+        assert_eq!((selected.width(), selected.height()), (640, 480));
+        assert_eq!(selected.frame_rate(), 30);
     }
 
     #[test]
@@ -1247,6 +1308,6 @@ mod tests {
             Ok(CameraWorkerEvent::Started(Ok(())))
         );
         assert!(worker.shutdown());
-        assert!(stops.load(Ordering::Relaxed) >= 3);
+        assert_eq!(stops.load(Ordering::Relaxed), 1);
     }
 }

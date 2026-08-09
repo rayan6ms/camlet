@@ -1,0 +1,13 @@
+{
+	"schemaVersion": 1,
+	"actions": [
+		{ "type": "wait-for-preview" },
+		{ "type": "set-camera-resolution", "value": "320x240" },
+		{ "type": "wait-for-preview" },
+		{ "type": "set-camera-resolution", "value": "640x480" },
+		{ "type": "wait-for-preview" },
+		{ "type": "delay", "milliseconds": 5000 },
+		{ "type": "diagnostics", "file": "diagnostics.json" },
+		{ "type": "quit" }
+	]
+}

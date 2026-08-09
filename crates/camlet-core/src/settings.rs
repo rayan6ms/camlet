@@ -21,6 +21,55 @@ pub const SETTINGS_SCHEMA_VERSION: u32 = 1;
 pub const CAMERA_FPS_OPTIONS: [u8; 4] = [15, 24, 30, 60];
 /// Capture rate used when no valid saved value exists.
 pub const DEFAULT_CAMERA_FPS: u8 = 30;
+/// Capture resolutions exposed by the context menu.
+pub const CAMERA_RESOLUTION_OPTIONS: [CameraResolution; 4] = [
+    CameraResolution::R320x240,
+    CameraResolution::R640x480,
+    CameraResolution::R1280x720,
+    CameraResolution::R1920x1080,
+];
+
+/// Persisted camera capture resolution.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CameraResolution {
+    /// 320×240 low-bandwidth capture.
+    #[serde(rename = "320x240")]
+    R320x240,
+    /// 640×480 standard-definition capture.
+    #[default]
+    #[serde(rename = "640x480")]
+    R640x480,
+    /// 1280×720 high-definition capture.
+    #[serde(rename = "1280x720")]
+    R1280x720,
+    /// 1920×1080 full-HD capture.
+    #[serde(rename = "1920x1080")]
+    R1920x1080,
+}
+
+impl CameraResolution {
+    /// Returns the requested physical capture dimensions.
+    #[must_use]
+    pub const fn dimensions(self) -> (u32, u32) {
+        match self {
+            Self::R320x240 => (320, 240),
+            Self::R640x480 => (640, 480),
+            Self::R1280x720 => (1_280, 720),
+            Self::R1920x1080 => (1_920, 1_080),
+        }
+    }
+
+    /// Returns the compact menu label.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::R320x240 => "320 × 240",
+            Self::R640x480 => "640 × 480",
+            Self::R1280x720 => "1280 × 720",
+            Self::R1920x1080 => "1920 × 1080",
+        }
+    }
+}
 
 /// Complete native settings document.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,6 +83,8 @@ pub struct AppSettings {
     pub selected_camera_device_id: Option<String>,
     /// Requested camera capture rate in frames per second.
     pub camera_fps: u8,
+    /// Requested camera capture resolution.
+    pub camera_resolution: CameraResolution,
     /// Overlay appearance.
     pub appearance: AppearanceSettings,
     /// Last logical host-window bounds.
@@ -47,6 +98,7 @@ impl Default for AppSettings {
             language: AppLanguage::System,
             selected_camera_device_id: None,
             camera_fps: DEFAULT_CAMERA_FPS,
+            camera_resolution: CameraResolution::default(),
             appearance: AppearanceSettings::default(),
             window: WindowState::default(),
         }
@@ -186,6 +238,14 @@ fn parse_settings_value(value: &Value) -> ParsedSettings {
             mark_if_present(camera_fps_value, "cameraFps", &mut repaired);
             DEFAULT_CAMERA_FPS
         });
+    let camera_resolution_value = root.get("cameraResolution");
+    let camera_resolution = camera_resolution_value
+        .and_then(Value::as_str)
+        .and_then(parse_camera_resolution)
+        .unwrap_or_else(|| {
+            mark_if_present(camera_resolution_value, "cameraResolution", &mut repaired);
+            CameraResolution::default()
+        });
     let appearance = parse_appearance(root, &defaults.appearance, &mut repaired);
     let window = parse_window(root, &defaults.window, &mut repaired);
 
@@ -195,6 +255,7 @@ fn parse_settings_value(value: &Value) -> ParsedSettings {
             language,
             selected_camera_device_id,
             camera_fps,
+            camera_resolution,
             appearance,
             window,
         },
@@ -330,6 +391,16 @@ fn parse_fit(value: &str) -> Option<PreviewFitMode> {
     }
 }
 
+fn parse_camera_resolution(value: &str) -> Option<CameraResolution> {
+    match value {
+        "320x240" => Some(CameraResolution::R320x240),
+        "640x480" => Some(CameraResolution::R640x480),
+        "1280x720" => Some(CameraResolution::R1280x720),
+        "1920x1080" => Some(CameraResolution::R1920x1080),
+        _ => None,
+    }
+}
+
 fn parse_device_id(value: Option<&Value>, repaired: &mut Vec<&'static str>) -> Option<String> {
     match value {
         None | Some(Value::Null) => None,
@@ -409,8 +480,8 @@ mod tests {
     use proptest::prelude::*;
 
     use super::{
-        AppSettings, CAMERA_FPS_OPTIONS, DEFAULT_CAMERA_FPS, load_settings, parse_settings_json,
-        write_settings,
+        AppSettings, CAMERA_FPS_OPTIONS, CAMERA_RESOLUTION_OPTIONS, CameraResolution,
+        DEFAULT_CAMERA_FPS, load_settings, parse_settings_json, write_settings,
     };
     use crate::appearance::{AppearanceSettings, HexColor, OverlayShape, PreviewFitMode};
     use crate::language::AppLanguage;
@@ -421,6 +492,7 @@ mod tests {
             r#"{
                 "language": "pt-BR",
                 "cameraFps": 144,
+                "cameraResolution": "cinema",
                 "appearance": {
                     "shape": "circle",
                     "size": 10,
@@ -436,13 +508,17 @@ mod tests {
         assert_eq!(parsed.settings.language, AppLanguage::PortugueseBrazil);
         assert_eq!(parsed.settings.camera_fps, DEFAULT_CAMERA_FPS);
         assert_eq!(
+            parsed.settings.camera_resolution,
+            CameraResolution::default()
+        );
+        assert_eq!(
             parsed.settings.appearance,
             AppearanceSettings {
                 shape: OverlayShape::Circle,
                 ..AppearanceSettings::default()
             }
         );
-        assert_eq!(parsed.repaired_fields.len(), 7);
+        assert_eq!(parsed.repaired_fields.len(), 8);
     }
 
     #[test]
@@ -463,6 +539,10 @@ mod tests {
         assert!(current.compatible_for_write);
         assert_eq!(current.source_schema_version, Some(1));
         assert_eq!(current.settings.camera_fps, 60);
+        assert_eq!(
+            current.settings.camera_resolution,
+            CameraResolution::R1280x720
+        );
         assert_eq!(current.settings.appearance.shape, OverlayShape::Diamond);
         assert_eq!(current.settings.appearance.fit, PreviewFitMode::Contain);
         assert!(current.repaired_fields.is_empty());
@@ -525,6 +605,7 @@ mod tests {
             prop_assert!(parsed.settings.appearance.ring_thickness <= 10);
             prop_assert!(parsed.settings.appearance.corner_roundness <= 72);
             prop_assert!(CAMERA_FPS_OPTIONS.contains(&parsed.settings.camera_fps));
+            prop_assert!(CAMERA_RESOLUTION_OPTIONS.contains(&parsed.settings.camera_resolution));
             prop_assert!(parsed.settings.window.width >= 176);
             prop_assert!(parsed.settings.window.height >= 176);
         }

@@ -13,6 +13,7 @@ categories.workspace = true
 publish = false
 
 [dependencies]
+async-channel.workspace = true
 nokhwa.workspace = true
 thiserror.workspace = true
 
