@@ -45,7 +45,7 @@ fn shape_distance(point: vec2<f32>) -> f32 {
     let local = point - (uniforms.shape_bounds.xy + half_size);
     let corner = uniforms.ring_corner.y;
     if uniforms.shape == 0u {
-        return rounded_box_distance(local, half_size, 0.0);
+        return rounded_box_distance(local, half_size, corner);
     }
     if uniforms.shape == 1u {
         return length(local) - min(half_size.x, half_size.y);

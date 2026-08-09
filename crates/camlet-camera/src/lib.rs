@@ -261,7 +261,14 @@ impl FrameSource for ScriptedFrameSource {
 #[derive(Default)]
 pub struct NokhwaFrameSource {
     camera: Option<Camera>,
+    devices: Vec<CachedCameraDevice>,
     next_sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CachedCameraDevice {
+    public: CameraDevice,
+    index: CameraIndex,
 }
 
 impl std::fmt::Debug for NokhwaFrameSource {
@@ -269,6 +276,7 @@ impl std::fmt::Debug for NokhwaFrameSource {
         formatter
             .debug_struct("NokhwaFrameSource")
             .field("running", &self.camera.is_some())
+            .field("device_count", &self.devices.len())
             .field("next_sequence", &self.next_sequence)
             .finish()
     }
@@ -276,18 +284,12 @@ impl std::fmt::Debug for NokhwaFrameSource {
 
 impl FrameSource for NokhwaFrameSource {
     fn devices(&mut self) -> Result<Vec<CameraDevice>, CameraError> {
-        ensure_nokhwa_initialized()?;
-        nokhwa::query(ApiBackend::Auto)
-            .map_err(|error| map_nokhwa_error(&error))
-            .map(|devices| {
-                devices
-                    .iter()
-                    .map(|device| CameraDevice {
-                        id: stable_device_id(device),
-                        label: device.human_name(),
-                    })
-                    .collect()
-            })
+        self.refresh_devices()?;
+        Ok(self
+            .devices
+            .iter()
+            .map(|device| device.public.clone())
+            .collect())
     }
 
     fn start(
@@ -300,9 +302,7 @@ impl FrameSource for NokhwaFrameSource {
         }
         self.stop();
         ensure_nokhwa_initialized()?;
-        let index = device_id.map_or(CameraIndex::Index(0), |id| {
-            CameraIndex::String(id.to_owned())
-        });
+        let index = self.resolve_device_index(device_id)?;
         let requested = RequestedFormat::new::<RgbAFormat>(RequestedFormatType::None);
         let mut camera = Camera::new(index, requested).map_err(|error| map_nokhwa_error(&error))?;
         if let Ok(formats) = camera.compatible_camera_formats()
@@ -352,6 +352,42 @@ impl FrameSource for NokhwaFrameSource {
     }
 }
 
+impl NokhwaFrameSource {
+    fn refresh_devices(&mut self) -> Result<(), CameraError> {
+        ensure_nokhwa_initialized()?;
+        let devices = nokhwa::query(ApiBackend::Auto).map_err(|error| map_nokhwa_error(&error))?;
+        self.devices = cache_camera_devices(&devices);
+        Ok(())
+    }
+
+    fn resolve_device_index(
+        &mut self,
+        device_id: Option<&str>,
+    ) -> Result<CameraIndex, CameraError> {
+        if self.devices.is_empty()
+            || device_id.is_some_and(|id| !self.devices.iter().any(|device| device.public.id == id))
+        {
+            self.refresh_devices()?;
+        }
+
+        device_id.map_or_else(
+            || {
+                self.devices
+                    .first()
+                    .map(|device| device.index.clone())
+                    .ok_or(CameraError::DeviceNotFound)
+            },
+            |id| {
+                self.devices
+                    .iter()
+                    .find(|device| device.public.id == id)
+                    .map(|device| device.index.clone())
+                    .ok_or(CameraError::DeviceNotFound)
+            },
+        )
+    }
+}
+
 impl Drop for NokhwaFrameSource {
     fn drop(&mut self) {
         self.stop();
@@ -379,6 +415,64 @@ fn stable_device_id(device: &nokhwa::utils::CameraInfo) -> String {
     } else {
         stable
     }
+}
+
+fn cache_camera_devices(devices: &[nokhwa::utils::CameraInfo]) -> Vec<CachedCameraDevice> {
+    let mut devices = devices
+        .iter()
+        .filter(|device| is_capture_device(device))
+        .collect::<Vec<_>>();
+    devices.sort_by(|first, second| first.index().cmp(second.index()));
+
+    devices
+        .into_iter()
+        .enumerate()
+        .map(|(position, device)| {
+            let label = device.human_name();
+            CachedCameraDevice {
+                public: CameraDevice {
+                    id: stable_device_id(device),
+                    label: if label.trim().is_empty() {
+                        format!("Camera {}", position.saturating_add(1))
+                    } else {
+                        label
+                    },
+                },
+                index: device.index().clone(),
+            }
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn is_capture_device(device: &nokhwa::utils::CameraInfo) -> bool {
+    let CameraIndex::Index(index) = device.index() else {
+        return true;
+    };
+    let device_number_path = format!("/sys/class/video4linux/video{index}/dev");
+    let Ok(device_number) = std::fs::read_to_string(device_number_path) else {
+        return true;
+    };
+    let udev_path = format!("/run/udev/data/c{}", device_number.trim());
+    let Ok(properties) = std::fs::read_to_string(udev_path) else {
+        return true;
+    };
+    udev_capture_capability(&properties).unwrap_or(true)
+}
+
+#[cfg(not(target_os = "linux"))]
+const fn is_capture_device(_device: &nokhwa::utils::CameraInfo) -> bool {
+    true
+}
+
+#[cfg(target_os = "linux")]
+fn udev_capture_capability(properties: &str) -> Option<bool> {
+    properties.lines().find_map(|line| {
+        line.strip_prefix("E:ID_V4L_CAPABILITIES=")
+            .map(|capabilities| {
+                capabilities.contains(":capture:") || capabilities.contains(":capture_mplane:")
+            })
+    })
 }
 
 fn choose_camera_format(formats: &[CameraFormat], request: CaptureRequest) -> Option<CameraFormat> {
@@ -805,12 +899,14 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use nokhwa::utils::{CameraFormat, FrameFormat};
+    use nokhwa::utils::{CameraFormat, CameraIndex, CameraInfo, FrameFormat};
 
+    #[cfg(target_os = "linux")]
+    use super::udev_capture_capability;
     use super::{
         CameraDevice, CameraError, CameraWorker, CameraWorkerCommand, CameraWorkerEvent,
         CaptureRequest, FrameSource, ScriptedFrameSource, SyntheticFrameSource, VideoFrame,
-        choose_camera_format, map_nokhwa_error,
+        cache_camera_devices, choose_camera_format, map_nokhwa_error,
     };
     use std::time::Duration;
 
@@ -971,6 +1067,34 @@ mod tests {
         )
         .unwrap_or_else(|| unreachable!());
         assert_eq!((selected.width(), selected.height()), (640, 480));
+    }
+
+    #[test]
+    fn enumerated_device_ids_reopen_with_the_original_backend_index() {
+        let devices = cache_camera_devices(&[
+            CameraInfo::new("", "", "", CameraIndex::Index(11)),
+            CameraInfo::new("USB camera", "", "persistent-id", CameraIndex::Index(7)),
+        ]);
+
+        assert_eq!(devices[0].public.id, "persistent-id");
+        assert_eq!(devices[0].index, CameraIndex::Index(7));
+        assert_eq!(devices[1].public.id, "11");
+        assert_eq!(devices[1].public.label, "Camera 2");
+        assert_eq!(devices[1].index, CameraIndex::Index(11));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_inventory_excludes_nodes_without_capture_capability() {
+        assert_eq!(
+            udev_capture_capability("E:ID_V4L_CAPABILITIES=:capture:\n"),
+            Some(true)
+        );
+        assert_eq!(
+            udev_capture_capability("E:ID_V4L_CAPABILITIES=:\n"),
+            Some(false)
+        );
+        assert_eq!(udev_capture_capability("E:OTHER=value\n"), None);
     }
 
     #[test]

@@ -165,11 +165,11 @@ fn shape_distance(shape: OverlayShape, x: f64, y: f64, host: Rect, corner_radius
     let half_height = host.height / 2.0;
 
     match shape {
-        OverlayShape::Original => {
-            rounded_box_distance(local_x, local_y, half_width, half_height, 0.0)
-        }
         OverlayShape::Circle => local_x.hypot(local_y) - half_width.min(half_height),
-        OverlayShape::RoundedSquare | OverlayShape::RectangleY | OverlayShape::RectangleX => {
+        OverlayShape::Original
+        | OverlayShape::RoundedSquare
+        | OverlayShape::RectangleY
+        | OverlayShape::RectangleX => {
             rounded_box_distance(local_x, local_y, half_width, half_height, corner_radius)
         }
         OverlayShape::Diamond => {
@@ -328,6 +328,17 @@ mod tests {
     }
 
     #[test]
+    fn original_shape_preserves_camera_ratio_with_rounded_corners() {
+        let frame = render_overlay(&source_frame(), &AppearanceSettings::default(), 224)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+
+        assert_eq!(alpha(&frame, 3, 31), 0);
+        assert_eq!(alpha(&frame, 5, 56), u8::MAX);
+        assert_eq!(alpha(&frame, 112, 33), u8::MAX);
+        assert_eq!(alpha(&frame, 112, 190), u8::MAX);
+    }
+
+    #[test]
     fn circle_alpha_is_exactly_symmetric() {
         let appearance = AppearanceSettings {
             shape: OverlayShape::Circle,
@@ -452,7 +463,7 @@ mod tests {
         assert_eq!(
             checksums,
             [
-                0x6f97_3fb7_b9b6_0d60,
+                0x44b0_7c8f_1537_763c,
                 0xadc7_9bff_7bcf_6ea0,
                 0x9e8c_249e_8633_b4fe,
                 0x0fa4_5ce3_6396_68f7,

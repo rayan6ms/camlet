@@ -38,6 +38,9 @@ use crate::screenshot::{
 use crate::{AutomationMode, Cli};
 
 const PERSISTENCE_DEBOUNCE: Duration = Duration::from_millis(250);
+const SETTINGS_WINDOW_WIDTH: f32 = 380.0;
+const SETTINGS_WINDOW_HEIGHT: f32 = 640.0;
+const SETTINGS_WINDOW_GAP: f32 = 12.0;
 const AUTHOR_URL: &str = "https://github.com/rayan6ms";
 const PROJECT_URL: &str = "https://github.com/rayan6ms/camlet";
 const ISSUES_URL: &str = "https://github.com/rayan6ms/camlet/issues";
@@ -56,8 +59,10 @@ struct Camlet {
     screenshot_path: Option<PathBuf>,
     screenshot_state: ScreenshotState,
     window_id: Option<window::Id>,
+    settings_window_id: Option<window::Id>,
     scale_factor: f32,
     monitor_maximum: u16,
+    monitor_size: Option<Size>,
     profile_directory: Option<PathBuf>,
     settings_path: Option<PathBuf>,
     settings_writable: bool,
@@ -101,13 +106,15 @@ enum Message {
     WindowEvent(window::Id, window::Event),
     MonitorSize(Option<Size>),
     KeyPressed {
+        window_id: window::Id,
         key: Key,
         physical: Physical,
         modifiers: Modifiers,
     },
     PreviewPressed,
-    ToggleMenu,
+    OpenMenu,
     ClosePanel,
+    WindowOpened,
     Product(Action),
     CameraPoll(CameraPollResult),
     PersistReady(u64),
@@ -158,31 +165,7 @@ pub fn run(cli: &Cli) -> Result<(), RunError> {
     let automation = cli.automation();
     let frame_source = cli.frame_source();
     let screenshot_path = cli.screenshot().map(PathBuf::from);
-
-    iced::application(
-        move || {
-            boot(
-                frame_source,
-                automation,
-                screenshot_path.clone(),
-                profile.clone(),
-                profile_directory.clone(),
-                startup_error,
-                automation_session.clone(),
-            )
-        },
-        update,
-        view,
-    )
-    .title(APP_NAME)
-    .theme(Theme::Dark)
-    .style(|_, selected_theme| theme::Style {
-        background_color: Color::TRANSPARENT,
-        text_color: selected_theme.palette().text,
-    })
-    .subscription(subscription)
-    .antialiasing(true)
-    .window(window::Settings {
+    let main_window_settings = window::Settings {
         size: Size::new(
             f32::from(initial_window.width),
             f32::from(initial_window.height),
@@ -205,7 +188,43 @@ pub fn run(cli: &Cli) -> Result<(), RunError> {
         level: window::Level::AlwaysOnTop,
         exit_on_close_request: false,
         ..window::Settings::default()
+    };
+
+    iced::daemon(
+        move || {
+            let (mut state, boot_task) = boot(
+                frame_source,
+                automation,
+                screenshot_path.clone(),
+                profile.clone(),
+                profile_directory.clone(),
+                startup_error,
+                automation_session.clone(),
+            );
+            let (id, open_task) = window::open(main_window_settings.clone());
+            state.window_id = Some(id);
+            (
+                state,
+                Task::batch([boot_task, open_task.map(|_| Message::WindowOpened)]),
+            )
+        },
+        update,
+        window_view,
+    )
+    .title(|state: &Camlet, id| {
+        if state.settings_window_id == Some(id) {
+            format!("{APP_NAME} Settings")
+        } else {
+            APP_NAME.to_owned()
+        }
     })
+    .theme(Theme::Dark)
+    .style(|_, selected_theme| theme::Style {
+        background_color: Color::TRANSPARENT,
+        text_color: selected_theme.palette().text,
+    })
+    .subscription(subscription)
+    .antialiasing(true)
     .run()
     .map_err(Into::into)
 }
@@ -257,8 +276,10 @@ fn boot(
         screenshot_path,
         screenshot_state: ScreenshotState::Waiting,
         window_id: None,
+        settings_window_id: None,
         scale_factor: 1.0,
         monitor_maximum: MAXIMUM_OVERLAY_SIZE,
+        monitor_size: None,
         profile_directory,
         settings_path: profile.settings_path,
         settings_writable: profile.writable,
@@ -279,6 +300,7 @@ fn update(state: &mut Camlet, message: Message) -> Task<Message> {
         Message::WindowEvent(id, event) => handle_window_event(state, id, &event),
         Message::MonitorSize(size) => {
             if let Some(size) = size {
+                state.monitor_size = Some(size);
                 let maximum = size
                     .width
                     .min(size.height)
@@ -290,12 +312,20 @@ fn update(state: &mut Camlet, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::KeyPressed {
+            window_id,
             key,
             physical,
             modifiers,
         } => {
-            if key == Key::Named(Named::Escape) && state.panel != Panel::Preview {
-                state.panel = Panel::Preview;
+            if key == Key::Named(Named::Escape) {
+                if state.settings_window_id == Some(window_id) {
+                    return close_settings_window(state);
+                }
+                if state.window_id == Some(window_id) && state.product.resize_mode {
+                    return apply_product_action(state, Action::SetResizeMode(false));
+                }
+            }
+            if state.window_id != Some(window_id) {
                 return Task::none();
             }
             keyboard_action(&key, physical, modifiers, state.monitor_maximum)
@@ -308,18 +338,9 @@ fn update(state: &mut Camlet, message: Message) -> Task<Message> {
                 window::drag(id)
             }
         }),
-        Message::ToggleMenu => {
-            state.panel = if state.panel == Panel::Menu {
-                Panel::Preview
-            } else {
-                Panel::Menu
-            };
-            Task::none()
-        }
-        Message::ClosePanel => {
-            state.panel = Panel::Preview;
-            Task::none()
-        }
+        Message::OpenMenu => open_settings_window(state),
+        Message::ClosePanel => close_settings_window(state),
+        Message::WindowOpened => Task::none(),
         Message::Product(action) => apply_product_action(state, action),
         Message::CameraPoll(result) => handle_camera_poll(state, result),
         Message::PersistReady(generation) => {
@@ -338,7 +359,7 @@ fn update(state: &mut Camlet, message: Message) -> Task<Message> {
             if !joined {
                 eprintln!("camlet: camera worker did not shut down cleanly");
             }
-            state.window_id.map_or_else(Task::none, window::close)
+            iced::exit()
         }
         Message::RetryStartup => retry_profile(state),
         Message::ProfileRetried(profile) => finish_profile_retry(state, profile),
@@ -384,10 +405,80 @@ fn capture_automation(state: &mut Camlet, path: PathBuf) -> Task<Message> {
     )
 }
 
+fn open_settings_window(state: &mut Camlet) -> Task<Message> {
+    state.panel = Panel::Menu;
+    state.diagnostics_state = DiagnosticsState::Ready;
+    if let Some(id) = state.settings_window_id {
+        return window::gain_focus(id);
+    }
+
+    let position = settings_window_position(state);
+    let settings = window::Settings {
+        size: Size::new(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT),
+        position: window::Position::Specific(position),
+        min_size: Some(Size::new(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)),
+        max_size: Some(Size::new(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)),
+        resizable: false,
+        decorations: true,
+        transparent: false,
+        level: window::Level::AlwaysOnTop,
+        exit_on_close_request: false,
+        ..window::Settings::default()
+    };
+    let (id, open_task) = window::open(settings);
+    state.settings_window_id = Some(id);
+    open_task.map(|_| Message::WindowOpened)
+}
+
+fn close_settings_window(state: &mut Camlet) -> Task<Message> {
+    state.panel = Panel::Preview;
+    state
+        .settings_window_id
+        .take()
+        .map_or_else(Task::none, window::close)
+}
+
+fn settings_window_position(state: &Camlet) -> Point {
+    let overlay = state.product.settings.window;
+    let mut x = overlay.x.to_f32().unwrap_or(0.0) + f32::from(overlay.width) + SETTINGS_WINDOW_GAP;
+    let mut y = overlay.y.to_f32().unwrap_or(0.0);
+
+    if let Some(monitor) = state.monitor_size {
+        if x >= 0.0 && x + SETTINGS_WINDOW_WIDTH > monitor.width {
+            x = overlay.x.to_f32().unwrap_or(0.0) - SETTINGS_WINDOW_WIDTH - SETTINGS_WINDOW_GAP;
+        }
+        if overlay.x >= 0 {
+            x = x.clamp(0.0, (monitor.width - SETTINGS_WINDOW_WIDTH).max(0.0));
+        }
+        if overlay.y >= 0 {
+            y = y.clamp(0.0, (monitor.height - SETTINGS_WINDOW_HEIGHT).max(0.0));
+        }
+    }
+
+    Point::new(x, y)
+}
+
 fn handle_window_event(state: &mut Camlet, id: window::Id, event: &window::Event) -> Task<Message> {
+    if state.settings_window_id == Some(id) {
+        return match event {
+            window::Event::CloseRequested | window::Event::Closed => {
+                state.settings_window_id = None;
+                state.panel = Panel::Preview;
+                if matches!(event, window::Event::CloseRequested) {
+                    window::close(id)
+                } else {
+                    Task::none()
+                }
+            }
+            _ => Task::none(),
+        };
+    }
+    if state.window_id != Some(id) {
+        return Task::none();
+    }
+
     match event {
         window::Event::Opened { position, size } => {
-            state.window_id = Some(id);
             if let Some(position) = *position {
                 record_position(state, position);
             }
@@ -426,6 +517,7 @@ fn handle_window_event(state: &mut Camlet, id: window::Id, event: &window::Event
             rerender(state);
             Task::none()
         }
+        window::Event::Closed => iced::exit(),
         window::Event::CloseRequested => clean_shutdown(state, id),
         _ => Task::none(),
     }
@@ -440,6 +532,7 @@ fn subscription(state: &Camlet) -> Subscription<Message> {
             modifiers,
             ..
         }) if status == event::Status::Ignored => Some(Message::KeyPressed {
+            window_id: id,
             key,
             physical: physical_key,
             modifiers,
@@ -606,6 +699,7 @@ fn handle_camera_poll(state: &mut Camlet, result: CameraPollResult) -> Task<Mess
                 state.product.camera_status,
                 CameraStatus::NoCamera | CameraStatus::SelectedDeviceUnavailable
             ) {
+                state.source_frame = None;
                 state.preview_error = Some(
                     match state.product.camera_status {
                         CameraStatus::NoCamera => "No camera was found",
@@ -640,7 +734,12 @@ fn handle_camera_poll(state: &mut Camlet, result: CameraPollResult) -> Task<Mess
         CameraPollResult::Event(CameraWorkerEvent::Frame(Ok(frame))) => {
             state.source_frame = Some(frame);
             state.frame_revision = state.frame_revision.saturating_add(1);
-            let ready_task = apply_product_action(state, Action::CameraReady);
+            let ready_task = if state.product.camera_status == CameraStatus::Preview {
+                rerender(state);
+                Task::none()
+            } else {
+                apply_product_action(state, Action::CameraReady)
+            };
             Task::batch([ready_task, finish_automation_if_needed(state)])
         }
         CameraPollResult::Event(
@@ -878,21 +977,22 @@ fn fail_automation(state: &mut Camlet) -> Task<Message> {
     if let Some(session) = state.automation_session.as_ref() {
         session.fail();
     }
-    eprintln!("camlet: automation scenario failed");
+    if let Some(error) = state.preview_error.as_deref() {
+        eprintln!("camlet: automation scenario failed: {error}");
+    } else {
+        eprintln!("camlet: automation scenario failed");
+    }
     state
         .window_id
         .map_or_else(Task::none, |id| clean_shutdown(state, id))
 }
 
 fn apply_product_action(state: &mut Camlet, action: Action) -> Task<Message> {
-    let resize_mode = match action {
-        Action::SetResizeMode(enabled) => Some(enabled),
+    let resize_mode = match &action {
+        Action::SetResizeMode(enabled) => Some(*enabled),
         _ => None,
     };
     let effects = state.product.update(action);
-    if !effects.contains(&Effect::OpenAbout) {
-        state.panel = Panel::Preview;
-    }
     rerender(state);
 
     let mut tasks = effects
@@ -903,6 +1003,9 @@ fn apply_product_action(state: &mut Camlet, action: Action) -> Task<Message> {
         && let Some(id) = state.window_id
     {
         tasks.push(window::set_resizable(id, enabled));
+        if enabled {
+            tasks.push(close_settings_window(state));
+        }
     }
     Task::batch(tasks)
 }
@@ -1003,22 +1106,22 @@ fn persist_now(state: &Camlet) {
     }
 }
 
-fn clean_shutdown(state: &mut Camlet, id: window::Id) -> Task<Message> {
+fn clean_shutdown(state: &mut Camlet, _id: window::Id) -> Task<Message> {
     if state.lifecycle == Lifecycle::ShuttingDown {
         return Task::none();
     }
     state.lifecycle = Lifecycle::ShuttingDown;
     persist_now(state);
     state.camera_events = None;
-    state.camera_worker.take().map_or_else(
-        || window::close(id),
-        |worker| {
+    state
+        .camera_worker
+        .take()
+        .map_or_else(iced::exit, |worker| {
             Task::perform(
                 async move { worker.shutdown() },
                 Message::CameraShutdownFinished,
             )
-        },
-    )
+        })
 }
 
 fn finish_screenshot(state: &mut Camlet, screenshot: &window::Screenshot) -> Task<Message> {
@@ -1206,7 +1309,17 @@ fn camera_placeholder_frame() -> VideoFrame {
     }
 }
 
-fn view(state: &Camlet) -> Element<'_, Message> {
+fn window_view(state: &Camlet, id: window::Id) -> Element<'_, Message> {
+    if state.settings_window_id == Some(id) {
+        return match state.panel {
+            Panel::About => about_view(state),
+            _ => menu_view(state),
+        };
+    }
+    main_view(state)
+}
+
+fn main_view(state: &Camlet) -> Element<'_, Message> {
     let preview = mouse_area(
         container(preview_view(state))
             .center(Length::Fill)
@@ -1214,17 +1327,15 @@ fn view(state: &Camlet) -> Element<'_, Message> {
             .height(Length::Fill),
     )
     .on_press(Message::PreviewPressed)
-    .on_right_press(Message::ToggleMenu);
+    .on_right_press(Message::OpenMenu);
 
     let mut layers = stack![preview].width(Length::Fill).height(Length::Fill);
     match state.panel {
-        Panel::Menu => layers = layers.push(opaque(menu_view(state))),
-        Panel::About => layers = layers.push(opaque(about_view(state))),
         Panel::StartupError => layers = layers.push(opaque(startup_error_view(state))),
         Panel::Preview if state.product.resize_mode => {
             layers = layers.push(opaque(resize_view(state)));
         }
-        Panel::Preview => {}
+        Panel::Preview | Panel::Menu | Panel::About => {}
     }
     layers.into()
 }
@@ -1568,8 +1679,9 @@ mod tests {
 
     use super::{
         Action, AutomationMode, CameraPollResult, Camlet, DiagnosticsState, FrameSourceKind,
-        Lifecycle, Message, PROJECT_URL, Panel, ScreenshotState, diagnostics_json,
-        handle_camera_poll, keyboard_action, view,
+        Lifecycle, Message, PROJECT_URL, Panel, ScreenshotState, about_view, apply_product_action,
+        diagnostics_json, handle_camera_poll, keyboard_action, main_view, menu_view,
+        settings_window_position,
     };
 
     fn test_state(menu_open: bool) -> Camlet {
@@ -1597,8 +1709,10 @@ mod tests {
             screenshot_path: None,
             screenshot_state: ScreenshotState::Waiting,
             window_id: None,
+            settings_window_id: None,
             scale_factor: 1.0,
             monitor_maximum: 640,
+            monitor_size: Some(iced::Size::new(1_920.0, 1_080.0)),
             profile_directory: None,
             settings_path: None,
             settings_writable: false,
@@ -1653,7 +1767,7 @@ mod tests {
     #[test]
     fn iced_menu_exposes_and_dispatches_appearance_actions() {
         let state = test_state(true);
-        let mut ui = simulator(view(&state));
+        let mut ui = simulator(menu_view(&state));
         ui.click("  Ocean")
             .unwrap_or_else(|error| unreachable!("{error}"));
         assert!(
@@ -1667,7 +1781,7 @@ mod tests {
     #[test]
     fn iced_menu_exposes_camera_selection_and_retry_actions() {
         let state = test_state(true);
-        let mut camera_ui = simulator(view(&state));
+        let mut camera_ui = simulator(menu_view(&state));
         camera_ui
             .click("● Camlet synthetic camera")
             .unwrap_or_else(|error| unreachable!("{error}"));
@@ -1675,7 +1789,7 @@ mod tests {
             matches!(message, Message::Product(Action::SetCamera(id)) if id == "synthetic")
         }));
 
-        let mut retry_ui = simulator(view(&state));
+        let mut retry_ui = simulator(menu_view(&state));
         retry_ui
             .click("Retry camera")
             .unwrap_or_else(|error| unreachable!("{error}"));
@@ -1690,7 +1804,7 @@ mod tests {
     #[test]
     fn camera_failure_placeholder_exposes_a_visible_retry_action() {
         let state = test_state(false);
-        let mut ui = simulator(view(&state));
+        let mut ui = simulator(main_view(&state));
         ui.click("↻ Retry camera")
             .unwrap_or_else(|error| unreachable!("{error}"));
         assert!(
@@ -1703,7 +1817,7 @@ mod tests {
     #[test]
     fn right_click_on_preview_opens_the_iced_menu_path() {
         let state = test_state(false);
-        let mut ui = simulator(view(&state));
+        let mut ui = simulator(main_view(&state));
         ui.point_at(Point::new(112.0, 112.0));
         let _ = ui.simulate([
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)),
@@ -1712,7 +1826,7 @@ mod tests {
         assert!(
             ui.into_messages()
                 .into_iter()
-                .any(|message| matches!(message, Message::ToggleMenu))
+                .any(|message| matches!(message, Message::OpenMenu))
         );
     }
 
@@ -1744,6 +1858,59 @@ mod tests {
             camlet_core::state::CameraStatus::Preview
         );
         assert!(state.source_frame.is_some());
+    }
+
+    #[test]
+    fn camera_frames_and_settings_changes_do_not_dismiss_the_settings_window() {
+        let mut state = test_state(true);
+        let _ = handle_camera_poll(
+            &mut state,
+            CameraPollResult::Event(CameraWorkerEvent::Frame(Ok(VideoFrame {
+                width: 2,
+                height: 2,
+                sequence: 1,
+                rgba: vec![64; 16],
+            }))),
+        );
+        assert_eq!(state.panel, Panel::Menu);
+
+        let _ = apply_product_action(&mut state, Action::SetTheme(ThemeId::Ocean));
+        assert_eq!(state.panel, Panel::Menu);
+    }
+
+    #[test]
+    fn losing_all_devices_clears_the_last_camera_frame() {
+        let mut state = test_state(false);
+        state.source_frame = Some(VideoFrame {
+            width: 1,
+            height: 1,
+            sequence: 1,
+            rgba: vec![64; 4],
+        });
+        state.product.settings.selected_camera_device_id = Some("synthetic".to_owned());
+
+        let _ = handle_camera_poll(
+            &mut state,
+            CameraPollResult::Event(CameraWorkerEvent::Devices(Ok(Vec::new()))),
+        );
+
+        assert!(state.source_frame.is_none());
+        assert_eq!(
+            state.product.camera_status,
+            camlet_core::state::CameraStatus::SelectedDeviceUnavailable
+        );
+    }
+
+    #[test]
+    fn settings_window_is_placed_beside_the_overlay_and_kept_on_screen() {
+        let mut state = test_state(false);
+        state.product.settings.window.x = 100;
+        state.product.settings.window.y = 120;
+        state.product.settings.window.width = 224;
+        assert_eq!(settings_window_position(&state), Point::new(336.0, 120.0));
+
+        state.product.settings.window.x = 1_700;
+        assert_eq!(settings_window_position(&state), Point::new(1_308.0, 120.0));
     }
 
     #[test]
@@ -1802,7 +1969,7 @@ mod tests {
     fn about_and_startup_recovery_controls_are_reachable() {
         let mut about = test_state(false);
         about.panel = Panel::About;
-        let mut about_ui = simulator(view(&about));
+        let mut about_ui = simulator(about_view(&about));
         about_ui
             .click("Copy diagnostics")
             .unwrap_or_else(|error| unreachable!("{error}"));
@@ -1813,7 +1980,7 @@ mod tests {
                 .any(|message| matches!(message, Message::CopyDiagnostics))
         );
 
-        let mut link_ui = simulator(view(&about));
+        let mut link_ui = simulator(about_view(&about));
         link_ui
             .click("Camlet GitHub")
             .unwrap_or_else(|error| unreachable!("{error}"));
@@ -1826,7 +1993,7 @@ mod tests {
 
         let mut startup = test_state(false);
         startup.panel = Panel::StartupError;
-        let mut startup_ui = simulator(view(&startup));
+        let mut startup_ui = simulator(main_view(&startup));
         startup_ui
             .click("Continue with safe defaults")
             .unwrap_or_else(|error| unreachable!("{error}"));
@@ -1837,7 +2004,7 @@ mod tests {
                 .any(|message| { matches!(message, Message::ContinueWithDefaults) })
         );
 
-        let mut retry_ui = simulator(view(&startup));
+        let mut retry_ui = simulator(main_view(&startup));
         retry_ui
             .click("Reload Camlet")
             .unwrap_or_else(|error| unreachable!("{error}"));
@@ -1852,7 +2019,7 @@ mod tests {
     #[test]
     fn advanced_about_and_quit_menu_actions_are_reachable() {
         let state = test_state(true);
-        let mut about_ui = simulator(view(&state));
+        let mut about_ui = simulator(menu_view(&state));
         about_ui.point_at(Point::new(100.0, 200.0));
         let _ = about_ui.simulate([Event::Mouse(mouse::Event::WheelScrolled {
             delta: mouse::ScrollDelta::Lines { x: 0.0, y: -60.0 },
@@ -1867,7 +2034,7 @@ mod tests {
                 .any(|message| matches!(message, Message::Product(Action::OpenAbout)))
         );
 
-        let mut quit_ui = simulator(view(&state));
+        let mut quit_ui = simulator(menu_view(&state));
         quit_ui.point_at(Point::new(100.0, 200.0));
         let _ = quit_ui.simulate([Event::Mouse(mouse::Event::WheelScrolled {
             delta: mouse::ScrollDelta::Lines { x: 0.0, y: -60.0 },

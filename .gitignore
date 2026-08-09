@@ -13,6 +13,7 @@ target/
 artifacts/
 benchmarks/raw/
 screenshots/actual/
+docs/
 
 # Local settings and temporary data
 data/
