@@ -284,7 +284,9 @@ impl std::fmt::Debug for NokhwaFrameSource {
 
 impl FrameSource for NokhwaFrameSource {
     fn devices(&mut self) -> Result<Vec<CameraDevice>, CameraError> {
+        let started = Instant::now();
         self.refresh_devices()?;
+        performance_trace("camera.enumerate", started);
         Ok(self
             .devices
             .iter()
@@ -297,25 +299,48 @@ impl FrameSource for NokhwaFrameSource {
         device_id: Option<&str>,
         request: CaptureRequest,
     ) -> Result<(), CameraError> {
+        let started = Instant::now();
         if request.width == 0 || request.height == 0 || request.frame_interval.is_zero() {
             return Err(CameraError::Backend);
         }
         self.stop();
         ensure_nokhwa_initialized()?;
+        performance_trace("camera.initialize", started);
         let index = self.resolve_device_index(device_id)?;
+        let open_started = Instant::now();
         let requested = RequestedFormat::new::<RgbAFormat>(RequestedFormatType::None);
         let mut camera = Camera::new(index, requested).map_err(|error| map_nokhwa_error(&error))?;
+        performance_trace("camera.open", open_started);
+        let formats_started = Instant::now();
         if let Ok(formats) = camera.compatible_camera_formats()
             && let Some(format) = choose_camera_format(&formats, request)
         {
-            let exact = RequestedFormat::new::<RgbAFormat>(RequestedFormatType::Exact(format));
-            camera
-                .set_camera_requset(exact)
-                .map_err(|error| map_nokhwa_error(&error))?;
+            performance_trace("camera.formats", formats_started);
+            if camera.camera_format() != format {
+                let configure_started = Instant::now();
+                let exact = RequestedFormat::new::<RgbAFormat>(RequestedFormatType::Exact(format));
+                camera
+                    .set_camera_requset(exact)
+                    .map_err(|error| map_nokhwa_error(&error))?;
+                performance_trace("camera.configure", configure_started);
+            }
         }
+        if std::env::var_os("CAMLET_TRACE_PERFORMANCE").is_some() {
+            let format = camera.camera_format();
+            eprintln!(
+                "camlet-performance: camera.selected-format={}x{}@{} {:?}",
+                format.width(),
+                format.height(),
+                format.frame_rate(),
+                format.format()
+            );
+        }
+        let stream_started = Instant::now();
         camera
             .open_stream()
             .map_err(|error| map_nokhwa_error(&error))?;
+        performance_trace("camera.stream", stream_started);
+        performance_trace("camera.start-total", started);
         self.camera = Some(camera);
         self.next_sequence = 0;
         Ok(())
@@ -325,11 +350,20 @@ impl FrameSource for NokhwaFrameSource {
         let Some(camera) = self.camera.as_mut() else {
             return Ok(None);
         };
+        let first_frame = self.next_sequence == 0;
+        let capture_started = Instant::now();
         let buffer = camera.frame().map_err(|error| map_nokhwa_error(&error))?;
+        if first_frame {
+            performance_trace("camera.first-frame-capture", capture_started);
+        }
         let resolution = buffer.resolution();
+        let decode_started = Instant::now();
         let image = buffer
             .decode_image::<RgbAFormat>()
             .map_err(|error| map_nokhwa_error(&error))?;
+        if first_frame {
+            performance_trace("camera.first-frame-decode", decode_started);
+        }
         let sequence = self.next_sequence;
         self.next_sequence = self.next_sequence.saturating_add(1);
         Ok(Some(VideoFrame {
@@ -349,6 +383,15 @@ impl FrameSource for NokhwaFrameSource {
         }
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(camera)));
         self.next_sequence = 0;
+    }
+}
+
+fn performance_trace(stage: &str, started: Instant) {
+    if std::env::var_os("CAMLET_TRACE_PERFORMANCE").is_some() {
+        eprintln!(
+            "camlet-performance: {stage}={}us",
+            started.elapsed().as_micros()
+        );
     }
 }
 
@@ -476,8 +519,7 @@ fn udev_capture_capability(properties: &str) -> Option<bool> {
 }
 
 fn choose_camera_format(formats: &[CameraFormat], request: CaptureRequest) -> Option<CameraFormat> {
-    let requested_fps = (Duration::from_secs(1).as_nanos() / request.frame_interval.as_nanos())
-        .clamp(1, 240) as u32;
+    let requested_fps = requested_fps(request);
     formats
         .iter()
         .filter(|format| RgbAFormat::FORMATS.contains(&format.format()))
@@ -499,6 +541,10 @@ fn choose_camera_format(formats: &[CameraFormat], request: CaptureRequest) -> Op
             )
         })
         .copied()
+}
+
+fn requested_fps(request: CaptureRequest) -> u32 {
+    (Duration::from_secs(1).as_nanos() / request.frame_interval.as_nanos()).clamp(1, 240) as u32
 }
 
 const fn frame_format_preference(format: FrameFormat) -> u8 {

@@ -1,0 +1,11 @@
+{
+	"schemaVersion": 1,
+	"actions": [
+		{ "type": "wait-for-preview" },
+		{ "type": "open-menu" },
+		{ "type": "open-advanced-menu" },
+		{ "type": "delay", "milliseconds": 1000 },
+		{ "type": "diagnostics", "file": "diagnostics.json" },
+		{ "type": "quit" }
+	]
+}

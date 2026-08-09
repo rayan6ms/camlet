@@ -35,6 +35,10 @@ pub enum AutomationAction {
     SuspendResume(Duration),
     /// Wait while the application and capture continue running.
     Delay(Duration),
+    /// Open the root context menu through the production window path.
+    OpenMenu,
+    /// Open the advanced submenu through the production window path.
+    OpenAdvancedMenu,
     /// Capture the real compositor output into this validated relative filename.
     Screenshot(String),
     /// Export redacted diagnostics into this validated relative filename.
@@ -167,6 +171,8 @@ enum ScriptAction {
     RestartCamera { repetitions: u16 },
     SuspendResume { milliseconds: u64 },
     Delay { milliseconds: u64 },
+    OpenMenu,
+    OpenAdvancedMenu,
     Screenshot { file: String },
     Diagnostics { file: String },
     Quit,
@@ -214,6 +220,10 @@ fn validate_and_expand(script: Script) -> Result<VecDeque<AutomationAction>, Aut
             }
             ScriptAction::Delay { milliseconds } => {
                 actions.push_back(AutomationAction::Delay(validate_delay(milliseconds)?));
+            }
+            ScriptAction::OpenMenu => actions.push_back(AutomationAction::OpenMenu),
+            ScriptAction::OpenAdvancedMenu => {
+                actions.push_back(AutomationAction::OpenAdvancedMenu);
             }
             ScriptAction::Screenshot { file } if valid_filename(&file) => {
                 actions.push_back(AutomationAction::Screenshot(file));

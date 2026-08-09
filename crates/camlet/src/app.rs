@@ -1,5 +1,6 @@
 use std::path::PathBuf;
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use camlet_camera::{
     CameraDevice, CameraError, CameraWorker, CameraWorkerCommand, CameraWorkerEvent,
@@ -22,8 +23,8 @@ use iced::widget::{
     text,
 };
 use iced::{
-    Color, Element, Length, Point, Size, Subscription, Task, Theme, clipboard, event, keyboard,
-    mouse, stream, theme, window,
+    Background, Border, Color, Element, Length, Point, Size, Subscription, Task, Theme, clipboard,
+    event, keyboard, mouse, stream, theme, window,
 };
 use num_traits::ToPrimitive;
 
@@ -55,9 +56,11 @@ struct Camlet {
     frame_source_kind: FrameSourceKind,
     camera_worker: Option<CameraWorker>,
     camera_events: Option<CameraWorkerEvents>,
-    source_frame: Option<VideoFrame>,
-    placeholder_frame: VideoFrame,
+    source_frame: Option<Arc<VideoFrame>>,
+    placeholder_frame: Arc<VideoFrame>,
     frame_revision: u64,
+    capture_first_frame_at: Option<Instant>,
+    capture_frame_count: u64,
     preview_error: Option<String>,
     panel: Panel,
     screenshot_path: Option<PathBuf>,
@@ -77,6 +80,8 @@ struct Camlet {
     profile_origin: &'static str,
     persist_generation: u64,
     persist_scheduled: bool,
+    pending_window_position: Option<(i32, i32)>,
+    pending_window_size: Option<u16>,
     lifecycle: Lifecycle,
     diagnostics_state: DiagnosticsState,
     automation_session: Option<AutomationSession>,
@@ -291,6 +296,8 @@ fn boot(
         source_frame: None,
         placeholder_frame: camera_placeholder_frame(),
         frame_revision: 0,
+        capture_first_frame_at: None,
+        capture_frame_count: 0,
         preview_error,
         panel: if startup_error {
             Panel::StartupError
@@ -314,6 +321,8 @@ fn boot(
         profile_origin: profile.origin,
         persist_generation: 0,
         persist_scheduled: false,
+        pending_window_position: None,
+        pending_window_size: None,
         lifecycle: Lifecycle::Running,
         diagnostics_state: DiagnosticsState::Ready,
         automation_session,
@@ -506,7 +515,7 @@ fn popup_window_settings(size: Size, position: Point) -> window::Settings {
         max_size: None,
         resizable: false,
         decorations: false,
-        transparent: false,
+        transparent: true,
         level: window::Level::AlwaysOnTop,
         exit_on_close_request: false,
         platform_specific: popup_platform_settings(),
@@ -656,23 +665,8 @@ fn handle_window_event(state: &mut Camlet, id: window::Id, event: &window::Event
             };
             Task::batch([monitor_task, enumerate_task])
         }
-        window::Event::Moved(position) => {
-            record_position(state, *position);
-            request_persistence(state)
-        }
-        window::Event::Resized(size) => {
-            record_size(state, *size);
-            rerender(state);
-            let square = state.product.settings.window.width;
-            let resize_task = if size.width.round().to_u16() != Some(square)
-                || size.height.round().to_u16() != Some(square)
-            {
-                window::resize(id, Size::new(f32::from(square), f32::from(square)))
-            } else {
-                Task::none()
-            };
-            Task::batch([request_persistence(state), resize_task])
-        }
+        window::Event::Moved(position) => handle_window_moved(state, *position),
+        window::Event::Resized(size) => handle_window_resized(state, id, *size),
         window::Event::Rescaled(scale_factor) => {
             state.scale_factor = scale_factor.max(0.5);
             rerender(state);
@@ -774,6 +768,7 @@ fn finish_profile_retry(state: &mut Camlet, profile: Option<NativeProfile>) -> T
 
 fn diagnostics_json(state: &Camlet) -> String {
     let appearance = &state.product.settings.appearance;
+    let measured_fps = measured_capture_fps(state);
     let snapshot = serde_json::json!({
         "schemaVersion": 1,
         "application": {
@@ -793,6 +788,7 @@ fn diagnostics_json(state: &Camlet) -> String {
             "source": state.frame_source_kind.as_str(),
             "status": camera_status_code(state.product.camera_status),
             "requestedFps": state.product.settings.camera_fps,
+            "measuredFps": measured_fps,
             "deviceCount": state.product.cameras.len(),
             "activeDevicePresent": state.product.active_camera_id.is_some(),
             "droppedFrames": state.camera_worker.as_ref().map_or(0, CameraWorker::dropped_frames),
@@ -807,6 +803,17 @@ fn diagnostics_json(state: &Camlet) -> String {
     });
     serde_json::to_string_pretty(&snapshot)
         .unwrap_or_else(|_| "{\"schemaVersion\":1,\"status\":\"unavailable\"}".to_owned())
+}
+
+fn measured_capture_fps(state: &Camlet) -> Option<f64> {
+    let first_frame_at = state.capture_first_frame_at?;
+    let intervals = state.capture_frame_count.checked_sub(1)?;
+    if intervals == 0 {
+        return None;
+    }
+    let intervals = intervals.to_f64()?;
+    let elapsed = first_frame_at.elapsed().as_secs_f64();
+    (elapsed > 0.0).then(|| ((intervals / elapsed) * 10.0).round() / 10.0)
 }
 
 fn release_channel() -> &'static str {
@@ -898,8 +905,12 @@ fn handle_camera_poll(state: &mut Camlet, result: CameraPollResult) -> Task<Mess
             Task::batch([status_task, finish_failed_automation(state)])
         }
         CameraPollResult::Event(CameraWorkerEvent::Frame(Ok(frame))) => {
-            state.source_frame = Some(frame);
+            state.source_frame = Some(Arc::new(frame));
             state.frame_revision = state.frame_revision.saturating_add(1);
+            if state.capture_first_frame_at.is_none() {
+                state.capture_first_frame_at = Some(Instant::now());
+            }
+            state.capture_frame_count = state.capture_frame_count.saturating_add(1);
             let ready_task = if state.product.camera_status == CameraStatus::Preview {
                 rerender(state);
                 Task::none()
@@ -1068,6 +1079,14 @@ fn run_automation_step(state: &mut Camlet) -> Task<Message> {
             Task::batch([stop, automation_delay(duration, Message::AutomationResume)])
         }
         AutomationAction::Delay(duration) => delayed_automation_step(duration),
+        AutomationAction::OpenMenu => Task::batch([
+            open_settings_window(state),
+            delayed_automation_step(Duration::from_millis(250)),
+        ]),
+        AutomationAction::OpenAdvancedMenu => Task::batch([
+            open_submenu_window(state, MenuPage::Advanced),
+            delayed_automation_step(Duration::from_millis(250)),
+        ]),
         AutomationAction::Screenshot(filename) => {
             let Some(session) = state.automation_session.as_ref() else {
                 return fail_automation(state);
@@ -1184,6 +1203,7 @@ fn execute_effect(state: &mut Camlet, effect: &Effect) -> Task<Message> {
             Task::none()
         }
         Effect::MoveWindow(window_state) => state.window_id.map_or_else(Task::none, |id| {
+            state.pending_window_position = Some((window_state.x, window_state.y));
             window::move_to(
                 id,
                 Point::new(
@@ -1193,6 +1213,8 @@ fn execute_effect(state: &mut Camlet, effect: &Effect) -> Task<Message> {
             )
         }),
         Effect::ResizeWindow(window_state) => state.window_id.map_or_else(Task::none, |id| {
+            state.pending_window_position = Some((window_state.x, window_state.y));
+            state.pending_window_size = Some(window_state.width);
             Task::batch([
                 window::move_to(
                     id,
@@ -1214,6 +1236,8 @@ fn execute_effect(state: &mut Camlet, effect: &Effect) -> Task<Message> {
         Effect::StartCamera(device_id) => {
             state.source_frame = None;
             state.preview_error = None;
+            state.capture_first_frame_at = None;
+            state.capture_frame_count = 0;
             send_camera_command(
                 state,
                 CameraWorkerCommand::Start {
@@ -1359,6 +1383,50 @@ fn record_size(state: &mut Camlet, size: Size) {
     state.product.settings.appearance.size = logical.min(MAXIMUM_OVERLAY_SIZE);
 }
 
+fn handle_window_moved(state: &mut Camlet, position: Point) -> Task<Message> {
+    let observed = (
+        position.x.round().to_i32().unwrap_or(0),
+        position.y.round().to_i32().unwrap_or(0),
+    );
+    if let Some(expected) = state.pending_window_position {
+        if observed == expected {
+            state.pending_window_position = None;
+        }
+        return Task::none();
+    }
+
+    record_position(state, position);
+    request_persistence(state)
+}
+
+fn handle_window_resized(state: &mut Camlet, id: window::Id, size: Size) -> Task<Message> {
+    let observed = size
+        .width
+        .min(size.height)
+        .round()
+        .to_u16()
+        .unwrap_or(MINIMUM_WINDOW_SIZE);
+    if let Some(expected) = state.pending_window_size {
+        if observed == expected {
+            state.pending_window_size = None;
+        }
+        return Task::none();
+    }
+
+    record_size(state, size);
+    rerender(state);
+    let square = state.product.settings.window.width;
+    let resize_task = if size.width.round().to_u16() != Some(square)
+        || size.height.round().to_u16() != Some(square)
+    {
+        state.pending_window_size = Some(square);
+        window::resize(id, Size::new(f32::from(square), f32::from(square)))
+    } else {
+        Task::none()
+    };
+    Task::batch([request_persistence(state), resize_task])
+}
+
 fn keyboard_action(
     key: &Key,
     physical: Physical,
@@ -1450,28 +1518,24 @@ fn preview_view(state: &Camlet) -> Element<'_, Message> {
         state.product.settings.language,
         state.system_locale.as_deref(),
     );
-    let message = column![
+    let mut message = column![
         text(camera_status_text(catalog, state.product.camera_status))
             .size(18)
             .color(Color::WHITE),
         text(detail).size(12).color(Color::from_rgb8(207, 218, 232)),
-        button(
-            row![
-                container(text("↻").size(16))
-                    .center_x(Length::Fixed(18.0))
-                    .center_y(Length::Fixed(18.0)),
-                text(catalog.retry_camera).size(12)
-            ]
-            .align_y(iced::Alignment::Center)
-            .spacing(7),
-        )
-        .height(34)
-        .padding([5, 12])
-        .on_press(Message::Product(Action::RetryCamera)),
     ]
     .align_x(iced::Alignment::Center)
-    .spacing(8)
+    .spacing(9)
     .padding(24);
+    if state.product.camera_status != CameraStatus::Loading {
+        message = message.push(
+            button(text(catalog.retry_camera).size(12))
+                .height(32)
+                .padding([6, 15])
+                .style(retry_button_style)
+                .on_press(Message::Product(Action::RetryCamera)),
+        );
+    }
     stack![
         overlay,
         container(message)
@@ -1482,19 +1546,37 @@ fn preview_view(state: &Camlet) -> Element<'_, Message> {
     .into()
 }
 
-fn camera_placeholder_frame() -> VideoFrame {
+fn retry_button_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let background = match status {
+        button::Status::Hovered => Color::from_rgba8(64, 76, 96, 0.96),
+        button::Status::Pressed => Color::from_rgba8(35, 44, 59, 0.98),
+        button::Status::Active | button::Status::Disabled => Color::from_rgba8(46, 57, 75, 0.92),
+    };
+    button::Style {
+        background: Some(Background::Color(background)),
+        text_color: Color::WHITE,
+        border: Border {
+            color: Color::from_rgba8(157, 177, 207, 0.28),
+            width: 1.0,
+            radius: 999.0.into(),
+        },
+        ..button::Style::default()
+    }
+}
+
+fn camera_placeholder_frame() -> Arc<VideoFrame> {
     const WIDTH: u32 = 4;
     const HEIGHT: u32 = 3;
     let mut rgba = Vec::with_capacity((WIDTH * HEIGHT * 4) as usize);
     for _ in 0..WIDTH * HEIGHT {
         rgba.extend_from_slice(&[8, 13, 22, u8::MAX]);
     }
-    VideoFrame {
+    Arc::new(VideoFrame {
         width: WIDTH,
         height: HEIGHT,
         sequence: 0,
         rgba,
-    }
+    })
 }
 
 fn window_view(state: &Camlet, id: window::Id) -> Element<'_, Message> {
@@ -1933,6 +2015,8 @@ fn resize_view(state: &Camlet) -> Element<'_, Message> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use camlet_camera::{CameraDevice, CameraError, CameraWorkerEvent, VideoFrame};
     use camlet_core::appearance::ThemeId;
     use camlet_core::settings::AppSettings;
@@ -1941,13 +2025,14 @@ mod tests {
     use iced::keyboard::{Key, Modifiers};
     use iced::{Point, Size, event::Event, mouse};
     use iced_test::simulator;
+    use num_traits::ToPrimitive;
 
     use super::{
         Action, AutomationMode, CameraPollResult, Camlet, DiagnosticsState, FrameSourceKind,
         Lifecycle, MENU_WINDOW_HEIGHT, MENU_WINDOW_WIDTH, MenuPage, Message, PROJECT_URL, Panel,
         ScreenshotState, about_view, apply_product_action, diagnostics_json, handle_camera_poll,
-        keyboard_action, main_view, menu_window_position, popup_window_settings, root_menu_view,
-        submenu_view,
+        handle_window_moved, handle_window_resized, keyboard_action, main_view,
+        menu_window_position, popup_window_settings, root_menu_view, submenu_view,
     };
 
     fn test_state(menu_open: bool) -> Camlet {
@@ -1966,6 +2051,8 @@ mod tests {
             source_frame: None,
             placeholder_frame: super::camera_placeholder_frame(),
             frame_revision: 0,
+            capture_first_frame_at: None,
+            capture_frame_count: 0,
             preview_error: Some("test preview".to_owned()),
             panel: if menu_open {
                 Panel::Menu
@@ -1989,6 +2076,8 @@ mod tests {
             profile_origin: "test",
             persist_generation: 0,
             persist_scheduled: false,
+            pending_window_position: None,
+            pending_window_size: None,
             lifecycle: Lifecycle::Running,
             diagnostics_state: DiagnosticsState::Ready,
             automation_session: None,
@@ -2088,7 +2177,8 @@ mod tests {
 
     #[test]
     fn camera_failure_placeholder_exposes_a_visible_retry_action() {
-        let state = test_state(false);
+        let mut state = test_state(false);
+        state.product.camera_status = camlet_core::state::CameraStatus::Error;
         let mut ui = simulator(main_view(&state));
         ui.click("Retry camera")
             .unwrap_or_else(|error| unreachable!("{error}"));
@@ -2097,6 +2187,86 @@ mod tests {
                 .into_iter()
                 .any(|message| { matches!(message, Message::Product(Action::RetryCamera)) })
         );
+    }
+
+    #[test]
+    fn camera_loading_placeholder_does_not_offer_a_premature_retry() {
+        let mut state = test_state(false);
+        state.product.camera_status = camlet_core::state::CameraStatus::Loading;
+        let mut ui = simulator(main_view(&state));
+        assert!(ui.click("Retry camera").is_err());
+    }
+
+    #[test]
+    fn stale_programmatic_window_feedback_cannot_undo_newer_keyboard_input() {
+        let mut state = test_state(false);
+        let window_id = iced::window::Id::unique();
+        state.window_id = Some(window_id);
+        let initial_x = state.product.settings.window.x;
+        let initial_y = state.product.settings.window.y;
+        let initial_size = state.product.settings.window.width;
+
+        let _ = apply_product_action(
+            &mut state,
+            Action::NudgeWindow {
+                x: 1,
+                y: 0,
+                accelerated: false,
+            },
+        );
+        let _ = apply_product_action(
+            &mut state,
+            Action::NudgeWindow {
+                x: 1,
+                y: 0,
+                accelerated: false,
+            },
+        );
+        let _ = handle_window_moved(
+            &mut state,
+            Point::new(
+                (initial_x + 1).to_f32().unwrap_or(0.0),
+                initial_y.to_f32().unwrap_or(0.0),
+            ),
+        );
+        assert_eq!(state.product.settings.window.x, initial_x + 2);
+        assert_eq!(
+            state.pending_window_position,
+            Some((initial_x + 2, initial_y))
+        );
+        let _ = handle_window_moved(
+            &mut state,
+            Point::new(
+                (initial_x + 2).to_f32().unwrap_or(0.0),
+                initial_y.to_f32().unwrap_or(0.0),
+            ),
+        );
+        assert_eq!(state.pending_window_position, None);
+
+        for _ in 0..2 {
+            let _ = apply_product_action(
+                &mut state,
+                Action::ResizeByStep {
+                    grow: true,
+                    maximum: 640,
+                },
+            );
+        }
+        let first_step = initial_size + 24;
+        let final_size = initial_size + 48;
+        let _ = handle_window_resized(
+            &mut state,
+            window_id,
+            Size::new(f32::from(first_step), f32::from(first_step)),
+        );
+        assert_eq!(state.product.settings.window.width, final_size);
+        assert_eq!(state.pending_window_size, Some(final_size));
+        let _ = handle_window_resized(
+            &mut state,
+            window_id,
+            Size::new(f32::from(final_size), f32::from(final_size)),
+        );
+        assert_eq!(state.pending_window_size, None);
     }
 
     #[test]
@@ -2166,12 +2336,12 @@ mod tests {
     #[test]
     fn losing_all_devices_clears_the_last_camera_frame() {
         let mut state = test_state(false);
-        state.source_frame = Some(VideoFrame {
+        state.source_frame = Some(Arc::new(VideoFrame {
             width: 1,
             height: 1,
             sequence: 1,
             rgba: vec![64; 4],
-        });
+        }));
         state.product.settings.selected_camera_device_id = Some("synthetic".to_owned());
 
         let _ = handle_camera_poll(
@@ -2213,7 +2383,7 @@ mod tests {
         );
         assert!(!settings.decorations);
         assert!(!settings.resizable);
-        assert!(!settings.transparent);
+        assert!(settings.transparent);
         assert_eq!(settings.min_size, None);
         assert_eq!(settings.max_size, None);
         #[cfg(target_os = "linux")]
@@ -2258,12 +2428,12 @@ mod tests {
         let mut state = test_state(false);
         state.product.settings.selected_camera_device_id = Some("private-camera-id".to_owned());
         state.settings_path = Some("/private/home/user/settings.json".into());
-        state.source_frame = Some(VideoFrame {
+        state.source_frame = Some(Arc::new(VideoFrame {
             width: 1,
             height: 1,
             sequence: 99,
             rgba: vec![11, 22, 33, 44],
-        });
+        }));
 
         let diagnostics = diagnostics_json(&state);
         assert!(!diagnostics.contains("private-camera-id"));

@@ -31,9 +31,9 @@ if (( preview_warmup_seconds + preview_sample_seconds > 70 )); then
   echo "preview warm-up and sample window must total at most 70 seconds" >&2
   exit 2
 fi
+has_camera=false
 if compgen -G '/dev/video*' >/dev/null; then
-  echo "idle/no-device benchmark requires a host without video devices" >&2
-  exit 2
+  has_camera=true
 fi
 
 mkdir -p "$output_directory"
@@ -60,7 +60,8 @@ startup_samples="$output_directory/startup-ms.tsv"
 for run in $(seq 1 "$startup_runs"); do
   run_directory="$output_directory/startup-$run"
   start_ns=$(date +%s%N)
-  WINIT_UNIX_BACKEND=x11 "$binary" \
+  env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET \
+    CAMLET_X11_RELAUNCHED=1 WINIT_UNIX_BACKEND=x11 "$binary" \
     --frame-source synthetic \
     --profile-dir "$run_directory/profile" \
     --automation-script fixtures/automation/startup-preview.json \
@@ -83,7 +84,8 @@ done
 preview_directory="$output_directory/preview"
 mkdir -p "$preview_directory/profile"
 cp fixtures/settings/performance-640.json "$preview_directory/profile/settings-v1.json"
-WINIT_UNIX_BACKEND=x11 "$binary" \
+env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET \
+  CAMLET_X11_RELAUNCHED=1 WINIT_UNIX_BACKEND=x11 "$binary" \
   --frame-source synthetic \
   --profile-dir "$preview_directory/profile" \
   --automation-script fixtures/automation/performance-preview-75s.json \
@@ -115,28 +117,33 @@ wait "$cleanup_pid"
 cleanup_pid=""
 test ! -s "$preview_directory/stderr"
 
-idle_directory="$output_directory/idle"
-mkdir -p "$idle_directory"
-WINIT_UNIX_BACKEND=x11 "$binary" \
-  --frame-source real \
-  --profile-dir "$idle_directory/profile" \
-  >"$idle_directory/stdout" 2>"$idle_directory/stderr" &
-cleanup_pid=$!
-sleep "$idle_warmup_seconds"
-idle_pss="$idle_directory/pss-kib.tsv"
-: >"$idle_pss"
-idle_count=$((idle_sample_seconds / 2))
-if (( idle_count < 1 )); then idle_count=1; fi
-for sample in $(seq 1 "$idle_count"); do
-  awk -v sample="$sample" '/^Pss:/ { print sample "\t" $2 }' "/proc/$cleanup_pid/smaps_rollup" >>"$idle_pss"
-  sleep 2
-done
-kill "$cleanup_pid"
-wait "$cleanup_pid" || true
-cleanup_pid=""
+idle_pss=""
+if [[ "$has_camera" == false ]]; then
+  idle_directory="$output_directory/idle"
+  mkdir -p "$idle_directory"
+  env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET \
+    CAMLET_X11_RELAUNCHED=1 WINIT_UNIX_BACKEND=x11 "$binary" \
+    --frame-source real \
+    --profile-dir "$idle_directory/profile" \
+    >"$idle_directory/stdout" 2>"$idle_directory/stderr" &
+  cleanup_pid=$!
+  sleep "$idle_warmup_seconds"
+  idle_pss="$idle_directory/pss-kib.tsv"
+  : >"$idle_pss"
+  idle_count=$((idle_sample_seconds / 2))
+  if (( idle_count < 1 )); then idle_count=1; fi
+  for sample in $(seq 1 "$idle_count"); do
+    awk -v sample="$sample" '/^Pss:/ { print sample "\t" $2 }' "/proc/$cleanup_pid/smaps_rollup" >>"$idle_pss"
+    sleep 2
+  done
+  kill "$cleanup_pid"
+  wait "$cleanup_pid" || true
+  cleanup_pid=""
+fi
 
 resize_directory="$output_directory/resize"
-WINIT_UNIX_BACKEND=x11 "$binary" \
+env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET \
+  CAMLET_X11_RELAUNCHED=1 WINIT_UNIX_BACKEND=x11 "$binary" \
   --frame-source synthetic \
   --profile-dir "$resize_directory/profile" \
   --automation-script fixtures/automation/performance-resize-500.json \
@@ -165,11 +172,14 @@ test ! -s "$resize_directory.stderr"
 median_column() {
   sort -n -k2 "$1" | awk '{ values[NR] = $2 } END { if (NR % 2) print values[(NR + 1) / 2]; else printf "%.1f\n", (values[NR / 2] + values[NR / 2 + 1]) / 2 }'
 }
+idle_median=null
+if [[ -n "$idle_pss" ]]; then
+  idle_median=$(median_column "$idle_pss")
+fi
 startup_median=$(median_column "$startup_samples")
 startup_min=$(awk 'NR == 1 || $2 < minimum { minimum = $2 } END { print minimum }' "$startup_samples")
 startup_max=$(awk 'NR == 1 || $2 > maximum { maximum = $2 } END { print maximum }' "$startup_samples")
 preview_median=$(median_column "$preview_pss")
-idle_median=$(median_column "$idle_pss")
 resize_baseline=$(sed -n '5,19p' "$resize_pss" | median_column /dev/stdin)
 resize_final=$(tail -20 "$resize_pss" | median_column /dev/stdin)
 resize_delta=$(awk -v baseline="$resize_baseline" -v final="$resize_final" 'BEGIN { printf "%.1f", final - baseline }')

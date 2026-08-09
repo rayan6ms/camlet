@@ -1,6 +1,7 @@
 //! WGPU compositor used by the live overlay.
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use camlet_camera::VideoFrame;
@@ -16,7 +17,7 @@ const EDGE_MARGIN_PHYSICAL_PIXELS: f64 = 2.0;
 /// A borrowed live-overlay scene. Drawing creates an owned primitive for Iced.
 #[derive(Debug, Clone, Copy)]
 pub struct OverlayProgram<'a> {
-    source: &'a VideoFrame,
+    source: &'a Arc<VideoFrame>,
     appearance: &'a AppearanceSettings,
     frame_revision: u64,
 }
@@ -25,7 +26,7 @@ impl<'a> OverlayProgram<'a> {
     /// Creates a live GPU scene.
     #[must_use]
     pub const fn new(
-        source: &'a VideoFrame,
+        source: &'a Arc<VideoFrame>,
         appearance: &'a AppearanceSettings,
         frame_revision: u64,
     ) -> Self {
@@ -68,10 +69,8 @@ impl<Message> shader::Program<Message> for OverlayProgram<'_> {
         _bounds: Rectangle,
     ) -> Self::Primitive {
         OverlayPrimitive {
-            source_width: self.source.width,
-            source_height: self.source.height,
+            source: Arc::clone(self.source),
             frame_revision: self.frame_revision,
-            rgba: self.source.rgba.clone(),
             appearance: self.appearance.clone(),
         }
     }
@@ -80,10 +79,8 @@ impl<Message> shader::Program<Message> for OverlayProgram<'_> {
 /// One owned frame submitted to the shared WGPU pipeline.
 #[derive(Debug)]
 pub struct OverlayPrimitive {
-    source_width: u32,
-    source_height: u32,
+    source: Arc<VideoFrame>,
     frame_revision: u64,
-    rgba: Vec<u8>,
     appearance: AppearanceSettings,
 }
 
@@ -234,8 +231,8 @@ impl OverlayPipeline {
         viewport: &Viewport,
         primitive: &OverlayPrimitive,
     ) {
-        if self.texture_size != (primitive.source_width, primitive.source_height) {
-            self.create_texture(device, primitive.source_width, primitive.source_height);
+        if self.texture_size != (primitive.source.width, primitive.source.height) {
+            self.create_texture(device, primitive.source.width, primitive.source.height);
         }
         if self.uploaded_revision != Some(primitive.frame_revision)
             && let Some(texture) = self.texture.as_ref()
@@ -247,15 +244,15 @@ impl OverlayPipeline {
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                &primitive.rgba,
+                &primitive.source.rgba,
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(primitive.source_width * 4),
-                    rows_per_image: Some(primitive.source_height),
+                    bytes_per_row: Some(primitive.source.width * 4),
+                    rows_per_image: Some(primitive.source.height),
                 },
                 wgpu::Extent3d {
-                    width: primitive.source_width,
-                    height: primitive.source_height,
+                    width: primitive.source.width,
+                    height: primitive.source.height,
                     depth_or_array_layers: 1,
                 },
             );
@@ -266,8 +263,8 @@ impl OverlayPipeline {
         let physical_height = bounds.height * viewport.scale_factor();
         let uniforms = RawUniforms::new(
             &primitive.appearance,
-            primitive.source_width,
-            primitive.source_height,
+            primitive.source.width,
+            primitive.source.height,
             physical_width,
             physical_height,
         );
