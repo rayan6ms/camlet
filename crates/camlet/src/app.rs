@@ -3752,8 +3752,10 @@ mod tests {
 
         let desktop_entry =
             include_str!("../../../packaging/linux/io.github.rayan6ms.camlet.desktop");
-        assert!(desktop_entry.contains(&format!("Icon={APP_ID}\n")));
-        assert!(desktop_entry.contains(&format!("StartupWMClass={APP_ID}\n")));
+        let icon_entry = format!("Icon={APP_ID}");
+        let wm_class_entry = format!("StartupWMClass={APP_ID}");
+        assert!(desktop_entry.lines().any(|line| line == icon_entry));
+        assert!(desktop_entry.lines().any(|line| line == wm_class_entry));
     }
 
     #[test]
