@@ -25,7 +25,21 @@
 </p>
 <!-- markdownlint-enable MD033 MD041 -->
 
-## Features
+## Choose the right Camlet
+
+This `master` branch contains the **legacy Electron implementation**. The
+recommended, actively developed Camlet is the **native Rust implementation**.
+
+| Version | Technology | Download or source |
+| --- | --- | --- |
+| **Camlet 0.2.x native (recommended)** | Rust, Iced, and WGPU; no browser or webview | Download a release asset whose name starts with `camlet-rust`, or visit the [`rewrite/iced` branch](https://github.com/rayan6ms/camlet/tree/rewrite/iced) |
+| Camlet 0.1.x legacy | Electron and TypeScript | Download a [0.1.x release](https://github.com/rayan6ms/camlet/releases?q=v0.1), or use this branch |
+
+The icon shown above belongs to the legacy Electron version. The native Rust
+README and packages use the separate `camlet-rust` icon and artifact names so
+users can tell exactly which implementation they are installing.
+
+## Legacy Electron features
 
 - always-on-top floating camera window
 - frameless transparent overlay
@@ -43,7 +57,7 @@ These only work while the Camlet window is focused.
 - `-` or `Numpad -`: decrease overlay size
 - `=` or `Numpad +`: increase overlay size
 
-## Running From Source
+## Running the legacy version from source
 
 Requirements:
 
@@ -81,7 +95,8 @@ Build artifacts are written to `release/`.
 
 ## Releases
 
-GitHub Releases workflow builds:
+The current release is the native Rust version and provides explicitly named
+`camlet-rust` packages. This legacy workflow builds:
 
 - Linux AppImage
 - Windows NSIS installer
