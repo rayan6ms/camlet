@@ -9,7 +9,10 @@ build_directory="$flatpak_root/build"
 repository="$flatpak_root/repository"
 state_directory="$flatpak_root/state"
 package_directory="$repository_root/target/packages"
-bundle="$package_directory/camlet-rust_0.2.2_x86_64.flatpak"
+package_id=$(cargo pkgid --manifest-path "$repository_root/Cargo.toml" -p camlet)
+version=${package_id##*#}
+version=${version##*@}
+bundle="$package_directory/camlet-rust_${version}_x86_64.flatpak"
 
 command -v flatpak >/dev/null || {
 	printf 'flatpak is required to build the Camlet Flatpak.\n' >&2

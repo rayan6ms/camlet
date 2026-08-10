@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 rust-version = "1.88"
 authors = ["Camlet contributors"]
@@ -24,7 +24,6 @@ bytemuck = { version = "1.24.0", features = ["derive"] }
 directories = "6.0.0"
 futures-timer = "3.0.4"
 iced = { version = "0.14.0", default-features = false, features = [
-    "image-without-codecs",
     "thread-pool",
     "wayland",
     "wgpu",
@@ -54,7 +53,7 @@ multiple_crate_versions = "allow"
 
 [profile.release]
 codegen-units = 1
-lto = "thin"
+lto = "fat"
 opt-level = 3
 panic = "abort"
 strip = "symbols"

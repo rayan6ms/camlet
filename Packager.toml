@@ -1,6 +1,6 @@
 name = "camlet"
 product-name = "Camlet"
-version = "0.2.2"
+version = "0.2.3"
 identifier = "io.github.rayan6ms.camlet"
 out-dir = "target/packages"
 binaries-dir = "target/release"
@@ -26,6 +26,16 @@ main = true
 
 [deb]
 desktop-template = "packaging/linux/camlet-packager.desktop.hbs"
+
+[deb.files]
+"LICENSE" = "usr/share/doc/camlet/copyright"
+"packaging/linux/camlet.1" = "usr/share/man/man1/camlet.1"
+"packaging/linux/io.github.rayan6ms.camlet.metainfo.xml" = "usr/share/metainfo/io.github.rayan6ms.camlet.metainfo.xml"
+"assets/camlet-rust.svg" = "usr/share/icons/hicolor/scalable/apps/camlet.svg"
+
+[appimage.files]
+"packaging/linux/io.github.rayan6ms.camlet.metainfo.xml" = "usr/share/metainfo/io.github.rayan6ms.camlet.metainfo.xml"
+"assets/camlet-rust.svg" = "usr/share/icons/hicolor/scalable/apps/camlet.svg"
 
 [nsis]
 compression = "lzma"

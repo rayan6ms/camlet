@@ -1,5 +1,5 @@
 Name:           camlet-rust
-Version:        0.2.2
+Version:        0.2.3
 Release:        1%{?dist}
 Summary:        Native floating camera overlay
 License:        GPL-3.0-only
@@ -49,6 +49,9 @@ appstreamcli validate --no-net %{buildroot}%{_datadir}/metainfo/io.github.rayan6
 %{_datadir}/icons/hicolor/256x256/apps/io.github.rayan6ms.camlet.png
 
 %changelog
+* Mon Aug 10 2026 Camlet contributors - 0.2.3-1
+- Refine menu stacking and sizing, refresh icons, and reduce release size.
+
 * Mon Aug 10 2026 Camlet contributors - 0.2.2-1
 - Fix desktop identity, icon alignment, compact menus, and always-on-top behavior.
 

@@ -41,7 +41,7 @@ const PERSISTENCE_DEBOUNCE: Duration = Duration::from_millis(250);
 const SUBMENU_HOVER_DELAY: Duration = Duration::from_millis(60);
 const MENU_AIM_DELAY: Duration = Duration::from_millis(300);
 const MENU_AIM_VERTICAL_TOLERANCE: f32 = 10.0;
-const MENU_WINDOW_WIDTH: f32 = 224.0;
+const MENU_WINDOW_WIDTH: f32 = 200.0;
 const MENU_ROW_HEIGHT: f32 = 28.0;
 const MENU_PADDING: f32 = 5.0;
 const MENU_SEPARATOR_HEIGHT: f32 = 9.0;
@@ -778,7 +778,10 @@ fn handle_window_opened(state: &Camlet, id: window::Id) -> Task<Message> {
     if state.settings_window_id == Some(id)
         || state.submenu_windows.iter().any(|popup| popup.id == id)
     {
-        window::gain_focus(id)
+        // The camera yields its topmost tier for the lifetime of the menu. Explicitly
+        // reassert the popup tier before focusing it so sibling topmost windows cannot
+        // cover a newly mapped menu on Windows or X11.
+        window::set_level(id, window::Level::AlwaysOnTop).chain(window::gain_focus(id))
     } else if state.window_id == Some(id) {
         // X11 window managers can discard the creation-time ABOVE request while the
         // window is being mapped. Reassert it once the native window exists.
@@ -877,7 +880,13 @@ fn open_settings_window(state: &mut Camlet) -> Task<Message> {
     }
     let (id, open_task) = window::open(settings);
     state.settings_window_id = Some(id);
-    tasks.push(open_task.map(Message::WindowOpened));
+    let open_task = if let Some(overlay_id) = state.window_id {
+        window::set_level(overlay_id, window::Level::Normal)
+            .chain(open_task.map(Message::WindowOpened))
+    } else {
+        open_task.map(Message::WindowOpened)
+    };
+    tasks.push(open_task);
     Task::batch(tasks)
 }
 
@@ -1100,7 +1109,18 @@ fn close_settings_window(state: &mut Camlet) -> Task<Message> {
     if let Some(id) = state.settings_window_id.take() {
         tasks.push(window::close(id));
     }
+    if let Some(id) = state.window_id {
+        tasks.push(window::set_level(id, window::Level::AlwaysOnTop));
+    }
     Task::batch(tasks)
+}
+
+const fn overlay_window_level(state: &Camlet) -> window::Level {
+    if state.settings_window_id.is_some() {
+        window::Level::Normal
+    } else {
+        window::Level::AlwaysOnTop
+    }
 }
 
 #[cfg(test)]
@@ -1284,7 +1304,11 @@ fn handle_window_event(state: &mut Camlet, id: window::Id, event: &window::Event
                     } else {
                         state.settings_window_id = None;
                         state.panel = Panel::Preview;
-                        Task::batch(close_submenus_from_level(state, 0))
+                        let mut tasks = close_submenus_from_level(state, 0);
+                        if let Some(id) = state.window_id {
+                            tasks.push(window::set_level(id, window::Level::AlwaysOnTop));
+                        }
+                        Task::batch(tasks)
                     }
                 } else {
                     let index = state
@@ -1342,10 +1366,10 @@ fn handle_window_event(state: &mut Camlet, id: window::Id, event: &window::Event
         window::Event::Closed => iced::exit(),
         window::Event::CloseRequested => clean_shutdown(state, id),
         window::Event::Focused | window::Event::Unfocused => {
-            // Keep the overlay above ordinary application windows even after focus
-            // transfers. This is idempotent on Windows and X11 and a no-op where the
-            // compositor does not expose window levels.
-            window::set_level(id, window::Level::AlwaysOnTop)
+            // A menu must occupy a strictly higher tier than the camera. Otherwise,
+            // reasserting the camera's topmost level during the focus handoff can put
+            // it in front of its own context menu.
+            window::set_level(id, overlay_window_level(state))
         }
         _ => Task::none(),
     }
@@ -3281,9 +3305,9 @@ mod tests {
         Message, PROJECT_URL, Panel, ScreenshotState, about_view, app_icon, apply_product_action,
         cursor_is_aiming_at_child, diagnostics_json, handle_camera_poll, handle_window_event,
         handle_window_moved, handle_window_resized, keyboard_action, main_view,
-        menu_window_position, open_submenu_window, overlay_window_settings, place_popup_at_pointer,
-        place_submenu, popup_window_settings, resize_view, root_menu_anchor, root_menu_view,
-        submenu_view, update, window_view,
+        menu_window_position, open_submenu_window, overlay_window_level, overlay_window_settings,
+        place_popup_at_pointer, place_submenu, popup_window_settings, resize_view,
+        root_menu_anchor, root_menu_view, submenu_view, update, window_view,
     };
 
     fn test_state(menu_open: bool) -> Camlet {
@@ -3729,7 +3753,7 @@ mod tests {
                 MENU_WINDOW_WIDTH,
                 MENU_WINDOW_HEIGHT,
             ),
-            Point::new(3_592.0, 1_056.0 - MENU_WINDOW_HEIGHT)
+            Point::new(3_616.0, 1_056.0 - MENU_WINDOW_HEIGHT)
         );
         assert_eq!(
             place_popup_at_pointer(
@@ -3738,7 +3762,7 @@ mod tests {
                 MENU_WINDOW_WIDTH,
                 MENU_WINDOW_HEIGHT,
             ),
-            Point::new(1_682.0, 304.0)
+            Point::new(1_706.0, 304.0)
         );
     }
 
@@ -3756,6 +3780,40 @@ mod tests {
         let wm_class_entry = format!("StartupWMClass={APP_ID}");
         assert!(desktop_entry.lines().any(|line| line == icon_entry));
         assert!(desktop_entry.lines().any(|line| line == wm_class_entry));
+    }
+
+    #[test]
+    fn packaging_metadata_matches_the_binary_version() {
+        let version = env!("CARGO_PKG_VERSION");
+        let packager = include_str!("../../../Packager.toml");
+        let rpm = include_str!("../../../packaging/rpm/camlet.spec");
+        let man_page = include_str!("../../../packaging/linux/camlet.1");
+        let metainfo =
+            include_str!("../../../packaging/linux/io.github.rayan6ms.camlet.metainfo.xml");
+
+        assert!(
+            packager
+                .lines()
+                .any(|line| line == format!("version = \"{version}\""))
+        );
+        assert!(
+            rpm.lines()
+                .any(|line| line == format!("Version:        {version}"))
+        );
+        assert!(man_page.contains(&format!("\"Camlet {version}\"")));
+        assert!(metainfo.contains(&format!("<release version=\"{version}\"")));
+    }
+
+    #[test]
+    fn overlay_yields_its_topmost_tier_while_a_menu_is_open() {
+        let mut state = test_state(false);
+        assert_eq!(
+            overlay_window_level(&state),
+            iced::window::Level::AlwaysOnTop
+        );
+
+        state.settings_window_id = Some(iced::window::Id::unique());
+        assert_eq!(overlay_window_level(&state), iced::window::Level::Normal);
     }
 
     #[test]
