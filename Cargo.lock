@@ -306,7 +306,7 @@ dependencies = [
 
 [[package]]
 name = "camlet"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bytemuck",
  "camlet-camera",
@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "camlet-camera"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-channel",
  "nokhwa",
@@ -337,7 +337,7 @@ dependencies = [
 
 [[package]]
 name = "camlet-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "atomic-write-file",
  "proptest",

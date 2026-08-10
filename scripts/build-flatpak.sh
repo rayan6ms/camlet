@@ -9,7 +9,7 @@ build_directory="$flatpak_root/build"
 repository="$flatpak_root/repository"
 state_directory="$flatpak_root/state"
 package_directory="$repository_root/target/packages"
-bundle="$package_directory/camlet-rust_0.2.1_x86_64.flatpak"
+bundle="$package_directory/camlet-rust_0.2.2_x86_64.flatpak"
 
 command -v flatpak >/dev/null || {
 	printf 'flatpak is required to build the Camlet Flatpak.\n' >&2

@@ -8,7 +8,7 @@ use camlet_camera::{
     CameraWorkerEvents, CaptureRequest, NokhwaFrameSource, SyntheticFrameSource, VideoFrame,
 };
 use camlet_core::appearance::MAXIMUM_OVERLAY_SIZE;
-use camlet_core::geometry::MINIMUM_WINDOW_SIZE;
+use camlet_core::geometry::{MINIMUM_WINDOW_SIZE, WindowState};
 use camlet_core::language::{AppLanguage, Catalog, catalog};
 use camlet_core::menu::MenuModel;
 use camlet_core::settings::{AppSettings, write_settings};
@@ -41,13 +41,14 @@ const PERSISTENCE_DEBOUNCE: Duration = Duration::from_millis(250);
 const SUBMENU_HOVER_DELAY: Duration = Duration::from_millis(60);
 const MENU_AIM_DELAY: Duration = Duration::from_millis(300);
 const MENU_AIM_VERTICAL_TOLERANCE: f32 = 10.0;
-const MENU_WINDOW_WIDTH: f32 = 260.0;
+const MENU_WINDOW_WIDTH: f32 = 224.0;
 const MENU_ROW_HEIGHT: f32 = 28.0;
 const MENU_PADDING: f32 = 5.0;
 const MENU_SEPARATOR_HEIGHT: f32 = 9.0;
 const MENU_WINDOW_HEIGHT: f32 = 252.0;
 const ABOUT_WINDOW_WIDTH: f32 = 420.0;
 const ABOUT_WINDOW_HEIGHT: f32 = 330.0;
+const APP_ID: &str = "io.github.rayan6ms.camlet";
 const AUTHOR_URL: &str = "https://github.com/rayan6ms";
 const PROJECT_URL: &str = "https://github.com/rayan6ms/camlet";
 const ISSUES_URL: &str = "https://github.com/rayan6ms/camlet/issues";
@@ -261,31 +262,7 @@ pub fn run(cli: &Cli) -> Result<(), RunError> {
     let automation = cli.automation();
     let frame_source = cli.frame_source();
     let screenshot_path = cli.screenshot().map(PathBuf::from);
-    let main_window_settings = window::Settings {
-        size: Size::new(
-            f32::from(initial_window.width),
-            f32::from(initial_window.height),
-        ),
-        position: window::Position::Specific(Point::new(
-            initial_window.x.to_f32().unwrap_or(48.0),
-            initial_window.y.to_f32().unwrap_or(48.0),
-        )),
-        min_size: Some(Size::new(
-            f32::from(MINIMUM_WINDOW_SIZE),
-            f32::from(MINIMUM_WINDOW_SIZE),
-        )),
-        max_size: Some(Size::new(
-            f32::from(MAXIMUM_OVERLAY_SIZE),
-            f32::from(MAXIMUM_OVERLAY_SIZE),
-        )),
-        resizable: false,
-        decorations: false,
-        transparent: true,
-        level: window::Level::AlwaysOnTop,
-        icon: app_icon(),
-        exit_on_close_request: false,
-        ..window::Settings::default()
-    };
+    let main_window_settings = overlay_window_settings(initial_window);
 
     iced::daemon(
         move || {
@@ -326,6 +303,35 @@ pub fn run(cli: &Cli) -> Result<(), RunError> {
     .antialiasing(false)
     .run()
     .map_err(Into::into)
+}
+
+fn overlay_window_settings(initial_window: WindowState) -> window::Settings {
+    window::Settings {
+        size: Size::new(
+            f32::from(initial_window.width),
+            f32::from(initial_window.height),
+        ),
+        position: window::Position::Specific(Point::new(
+            initial_window.x.to_f32().unwrap_or(48.0),
+            initial_window.y.to_f32().unwrap_or(48.0),
+        )),
+        min_size: Some(Size::new(
+            f32::from(MINIMUM_WINDOW_SIZE),
+            f32::from(MINIMUM_WINDOW_SIZE),
+        )),
+        max_size: Some(Size::new(
+            f32::from(MAXIMUM_OVERLAY_SIZE),
+            f32::from(MAXIMUM_OVERLAY_SIZE),
+        )),
+        resizable: false,
+        decorations: false,
+        transparent: true,
+        level: window::Level::AlwaysOnTop,
+        icon: app_icon(),
+        exit_on_close_request: false,
+        platform_specific: main_platform_settings(),
+        ..window::Settings::default()
+    }
 }
 
 fn boot(
@@ -774,7 +780,9 @@ fn handle_window_opened(state: &Camlet, id: window::Id) -> Task<Message> {
     {
         window::gain_focus(id)
     } else if state.window_id == Some(id) {
-        Task::none()
+        // X11 window managers can discard the creation-time ABOVE request while the
+        // window is being mapped. Reassert it once the native window exists.
+        window::set_level(id, window::Level::AlwaysOnTop)
     } else {
         // A popup can finish opening after a rapid hover already closed its branch.
         // Never leave that now-untracked native window alive.
@@ -1039,9 +1047,22 @@ fn load_app_icon() -> Option<window::Icon> {
 }
 
 #[cfg(target_os = "linux")]
+fn main_platform_settings() -> window::settings::PlatformSpecific {
+    window::settings::PlatformSpecific {
+        application_id: APP_ID.to_owned(),
+        override_redirect: false,
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn main_platform_settings() -> window::settings::PlatformSpecific {
+    window::settings::PlatformSpecific::default()
+}
+
+#[cfg(target_os = "linux")]
 fn popup_platform_settings() -> window::settings::PlatformSpecific {
     window::settings::PlatformSpecific {
-        application_id: "camlet-menu".to_owned(),
+        application_id: APP_ID.to_owned(),
         override_redirect: false,
     }
 }
@@ -1305,7 +1326,11 @@ fn handle_window_event(state: &mut Camlet, id: window::Id, event: &window::Event
             } else {
                 Task::none()
             };
-            Task::batch([monitor_task, startup_task])
+            Task::batch([
+                monitor_task,
+                startup_task,
+                window::set_level(id, window::Level::AlwaysOnTop),
+            ])
         }
         window::Event::Moved(position) => handle_window_moved(state, *position),
         window::Event::Resized(size) => handle_window_resized(state, id, *size),
@@ -1316,6 +1341,12 @@ fn handle_window_event(state: &mut Camlet, id: window::Id, event: &window::Event
         }
         window::Event::Closed => iced::exit(),
         window::Event::CloseRequested => clean_shutdown(state, id),
+        window::Event::Focused | window::Event::Unfocused => {
+            // Keep the overlay above ordinary application windows even after focus
+            // transfers. This is idempotent on Windows and X11 and a no-op where the
+            // compositor does not expose window levels.
+            window::set_level(id, window::Level::AlwaysOnTop)
+        }
         _ => Task::none(),
     }
 }
@@ -3235,6 +3266,7 @@ mod tests {
 
     use camlet_camera::{CameraDevice, CameraError, CameraWorkerEvent, VideoFrame};
     use camlet_core::appearance::ThemeId;
+    use camlet_core::geometry::WindowState;
     use camlet_core::settings::AppSettings;
     use camlet_core::state::{AppState, CameraOption};
     use iced::keyboard::key::{Code, Named, Physical};
@@ -3244,14 +3276,14 @@ mod tests {
     use num_traits::ToPrimitive;
 
     use super::{
-        Action, AutomationMode, CameraPollResult, Camlet, DiagnosticsState, FrameSourceKind,
-        Lifecycle, MENU_WINDOW_HEIGHT, MENU_WINDOW_WIDTH, MenuPage, MenuPopup, Message,
-        PROJECT_URL, Panel, ScreenshotState, about_view, app_icon, apply_product_action,
+        APP_ID, Action, AutomationMode, CameraPollResult, Camlet, DiagnosticsState,
+        FrameSourceKind, Lifecycle, MENU_WINDOW_HEIGHT, MENU_WINDOW_WIDTH, MenuPage, MenuPopup,
+        Message, PROJECT_URL, Panel, ScreenshotState, about_view, app_icon, apply_product_action,
         cursor_is_aiming_at_child, diagnostics_json, handle_camera_poll, handle_window_event,
         handle_window_moved, handle_window_resized, keyboard_action, main_view,
-        menu_window_position, open_submenu_window, place_popup_at_pointer, place_submenu,
-        popup_window_settings, resize_view, root_menu_anchor, root_menu_view, submenu_view, update,
-        window_view,
+        menu_window_position, open_submenu_window, overlay_window_settings, place_popup_at_pointer,
+        place_submenu, popup_window_settings, resize_view, root_menu_anchor, root_menu_view,
+        submenu_view, update, window_view,
     };
 
     fn test_state(menu_open: bool) -> Camlet {
@@ -3697,7 +3729,7 @@ mod tests {
                 MENU_WINDOW_WIDTH,
                 MENU_WINDOW_HEIGHT,
             ),
-            Point::new(3_556.0, 1_056.0 - MENU_WINDOW_HEIGHT)
+            Point::new(3_592.0, 1_056.0 - MENU_WINDOW_HEIGHT)
         );
         assert_eq!(
             place_popup_at_pointer(
@@ -3706,8 +3738,22 @@ mod tests {
                 MENU_WINDOW_WIDTH,
                 MENU_WINDOW_HEIGHT,
             ),
-            Point::new(1_646.0, 304.0)
+            Point::new(1_682.0, 304.0)
         );
+    }
+
+    #[test]
+    fn overlay_window_is_topmost_and_matches_the_desktop_application_id() {
+        let settings = overlay_window_settings(WindowState::default());
+        assert_eq!(settings.level, iced::window::Level::AlwaysOnTop);
+        assert!(settings.icon.is_some());
+        #[cfg(target_os = "linux")]
+        assert_eq!(settings.platform_specific.application_id, APP_ID);
+
+        let desktop_entry =
+            include_str!("../../../packaging/linux/io.github.rayan6ms.camlet.desktop");
+        assert!(desktop_entry.contains(&format!("Icon={APP_ID}\n")));
+        assert!(desktop_entry.contains(&format!("StartupWMClass={APP_ID}\n")));
     }
 
     #[test]
@@ -3722,7 +3768,10 @@ mod tests {
         assert_eq!(settings.min_size, None);
         assert_eq!(settings.max_size, None);
         #[cfg(target_os = "linux")]
-        assert!(!settings.platform_specific.override_redirect);
+        {
+            assert!(!settings.platform_specific.override_redirect);
+            assert_eq!(settings.platform_specific.application_id, APP_ID);
+        }
         #[cfg(target_os = "windows")]
         assert!(settings.platform_specific.skip_taskbar);
     }

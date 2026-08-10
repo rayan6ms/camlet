@@ -9,4 +9,4 @@ Terminal=false
 Categories=AudioVideo;Video;
 Keywords=camera;webcam;overlay;recording;presentation;
 StartupNotify=true
-StartupWMClass=camlet
+StartupWMClass=io.github.rayan6ms.camlet

@@ -1,6 +1,6 @@
 name = "camlet"
 product-name = "Camlet"
-version = "0.2.1"
+version = "0.2.2"
 identifier = "io.github.rayan6ms.camlet"
 out-dir = "target/packages"
 binaries-dir = "target/release"
@@ -23,6 +23,9 @@ icons = [
 [[binaries]]
 path = "camlet"
 main = true
+
+[deb]
+desktop-template = "packaging/linux/camlet-packager.desktop.hbs"
 
 [nsis]
 compression = "lzma"
