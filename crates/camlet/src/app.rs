@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use camlet_camera::{
@@ -17,8 +18,7 @@ use iced::futures::SinkExt;
 use iced::keyboard::key::{Code, Named, Physical};
 use iced::keyboard::{Key, Modifiers};
 use iced::widget::{
-    button, column, container, mouse_area, opaque, row, rule, scrollable, shader, space, stack,
-    text,
+    button, column, container, mouse_area, opaque, row, rule, shader, space, stack, text,
 };
 use iced::{
     Background, Border, Color, Element, Length, Point, Rectangle, Shadow, Size, Subscription, Task,
@@ -38,10 +38,16 @@ use crate::screenshot::{
 use crate::{AutomationMode, Cli};
 
 const PERSISTENCE_DEBOUNCE: Duration = Duration::from_millis(250);
+const SUBMENU_HOVER_DELAY: Duration = Duration::from_millis(60);
+const MENU_AIM_DELAY: Duration = Duration::from_millis(300);
+const MENU_AIM_VERTICAL_TOLERANCE: f32 = 10.0;
 const MENU_WINDOW_WIDTH: f32 = 260.0;
-const MENU_WINDOW_HEIGHT: f32 = 260.0;
-const ABOUT_WINDOW_WIDTH: f32 = 380.0;
-const ABOUT_WINDOW_HEIGHT: f32 = 430.0;
+const MENU_ROW_HEIGHT: f32 = 28.0;
+const MENU_PADDING: f32 = 5.0;
+const MENU_SEPARATOR_HEIGHT: f32 = 9.0;
+const MENU_WINDOW_HEIGHT: f32 = 252.0;
+const ABOUT_WINDOW_WIDTH: f32 = 420.0;
+const ABOUT_WINDOW_HEIGHT: f32 = 330.0;
 const AUTHOR_URL: &str = "https://github.com/rayan6ms";
 const PROJECT_URL: &str = "https://github.com/rayan6ms/camlet";
 const ISSUES_URL: &str = "https://github.com/rayan6ms/camlet/issues";
@@ -63,7 +69,15 @@ struct Camlet {
     screenshot_state: ScreenshotState,
     window_id: Option<window::Id>,
     settings_window_id: Option<window::Id>,
-    active_submenu: Option<MenuPage>,
+    submenu_windows: Vec<MenuPopup>,
+    menu_root_position: Point,
+    menu_monitor_bounds: Option<Rectangle>,
+    focused_menu_window: Option<window::Id>,
+    menu_focus_generation: u64,
+    submenu_hover_generation: u64,
+    menu_pointer: Option<MenuPointer>,
+    menu_intent_generation: u64,
+    deferred_menu_parent: Option<window::Id>,
     preview_cursor: Point,
     scale_factor: f32,
     monitor_maximum: u16,
@@ -104,6 +118,34 @@ enum MenuPage {
     CornerRoundness,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct MenuPopup {
+    id: window::Id,
+    page: MenuPage,
+    position: Point,
+    size: Size,
+    aim_origin: Point,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MenuPointer {
+    window_id: window::Id,
+    previous: Point,
+    current: Point,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MenuIntent {
+    Open {
+        parent: window::Id,
+        page: MenuPage,
+        anchor_y: f32,
+    },
+    Close {
+        parent: window::Id,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DiagnosticsState {
     Ready,
@@ -133,13 +175,42 @@ enum Message {
         modifiers: Modifiers,
     },
     PreviewPressed,
+    BeginWindowResize(window::Direction),
     PreviewCursorMoved(Point),
+    MenuCursorMoved {
+        window_id: window::Id,
+        position: Point,
+    },
     OpenMenu,
-    OpenSubmenu(MenuPage),
-    MenuBack(Option<MenuPage>),
+    OpenSubmenu {
+        parent: window::Id,
+        page: MenuPage,
+        anchor_y: f32,
+    },
+    HoverSubmenu {
+        parent: window::Id,
+        page: MenuPage,
+        anchor_y: f32,
+    },
+    OpenHoveredSubmenu {
+        parent: window::Id,
+        page: MenuPage,
+        anchor_y: f32,
+        generation: u64,
+    },
+    EvaluateSubmenuClose {
+        parent: window::Id,
+        generation: u64,
+    },
+    CloseSubmenusAfter(window::Id),
+    ResolveMenuIntent {
+        intent: MenuIntent,
+        generation: u64,
+    },
+    DismissMenuIfUnfocused(u64),
     MenuProduct(Action),
     ClosePanel,
-    WindowOpened,
+    WindowOpened(window::Id),
     Product(Action),
     CameraPoll(CameraPollResult),
     PersistReady(u64),
@@ -211,6 +282,7 @@ pub fn run(cli: &Cli) -> Result<(), RunError> {
         decorations: false,
         transparent: true,
         level: window::Level::AlwaysOnTop,
+        icon: app_icon(),
         exit_on_close_request: false,
         ..window::Settings::default()
     };
@@ -230,7 +302,7 @@ pub fn run(cli: &Cli) -> Result<(), RunError> {
             state.window_id = Some(id);
             (
                 state,
-                Task::batch([boot_task, open_task.map(|_| Message::WindowOpened)]),
+                Task::batch([boot_task, open_task.map(Message::WindowOpened)]),
             )
         },
         update,
@@ -310,7 +382,15 @@ fn boot(
         screenshot_state: ScreenshotState::Waiting,
         window_id: None,
         settings_window_id: None,
-        active_submenu: None,
+        submenu_windows: Vec::new(),
+        menu_root_position: Point::ORIGIN,
+        menu_monitor_bounds: None,
+        focused_menu_window: None,
+        menu_focus_generation: 0,
+        submenu_hover_generation: 0,
+        menu_pointer: None,
+        menu_intent_generation: 0,
+        deferred_menu_parent: None,
         preview_cursor,
         scale_factor: 1.0,
         monitor_maximum: MAXIMUM_OVERLAY_SIZE,
@@ -340,52 +420,53 @@ fn boot(
 fn update(state: &mut Camlet, message: Message) -> Task<Message> {
     match message {
         Message::WindowEvent(id, event) => handle_window_event(state, id, &event),
-        Message::MonitorSize(size) => {
-            if let Some(size) = size {
-                state.monitor_size = Some(size);
-                let maximum = size
-                    .width
-                    .min(size.height)
-                    .floor()
-                    .to_u16()
-                    .unwrap_or(MAXIMUM_OVERLAY_SIZE);
-                state.monitor_maximum = maximum.clamp(MINIMUM_WINDOW_SIZE, MAXIMUM_OVERLAY_SIZE);
-            }
-            Task::none()
-        }
+        Message::MonitorSize(size) => record_monitor_size(state, size),
         Message::KeyPressed {
             window_id,
             key,
             physical,
             modifiers,
         } => handle_key_pressed(state, window_id, &key, physical, modifiers),
-        Message::PreviewPressed => {
-            if state.settings_window_id.is_some() {
-                close_settings_window(state)
-            } else {
-                state.window_id.map_or_else(Task::none, |id| {
-                    if state.product.resize_mode {
-                        window::drag_resize(id, window::Direction::SouthEast)
-                    } else {
-                        window::drag(id)
-                    }
-                })
-            }
-        }
+        Message::PreviewPressed => handle_preview_pressed(state),
+        Message::BeginWindowResize(direction) => state
+            .window_id
+            .map_or_else(Task::none, |id| window::drag_resize(id, direction)),
         Message::PreviewCursorMoved(position) => {
             state.preview_cursor = position;
             Task::none()
         }
+        Message::MenuCursorMoved {
+            window_id,
+            position,
+        } => track_menu_cursor(state, window_id, position),
         Message::OpenMenu => open_settings_window(state),
-        Message::OpenSubmenu(page) => navigate_menu_page(state, Some(page)),
-        Message::MenuBack(page) => navigate_menu_page(state, page),
-        Message::MenuProduct(action) => {
-            let action_task = apply_product_action(state, action);
-            let close_task = close_settings_window(state);
-            Task::batch([action_task, close_task])
+        Message::OpenSubmenu {
+            parent,
+            page,
+            anchor_y,
+        } => open_submenu_immediately(state, parent, page, anchor_y),
+        Message::HoverSubmenu {
+            parent,
+            page,
+            anchor_y,
+        } => handle_submenu_hover(state, parent, page, anchor_y),
+        Message::OpenHoveredSubmenu {
+            parent,
+            page,
+            anchor_y,
+            generation,
+        } => open_hovered_submenu(state, parent, page, anchor_y, generation),
+        Message::EvaluateSubmenuClose { parent, generation } => {
+            evaluate_submenu_close(state, parent, generation)
         }
+        Message::CloseSubmenusAfter(parent) => handle_submenu_close_hover(state, parent),
+        Message::ResolveMenuIntent { intent, generation } => {
+            resolve_menu_intent(state, intent, generation)
+        }
+        Message::DismissMenuIfUnfocused(generation) => dismiss_menu_if_unfocused(state, generation),
+        Message::MenuProduct(action) => apply_menu_product(state, action),
         Message::ClosePanel => close_settings_window(state),
-        Message::WindowOpened => Task::none(),
+        Message::WindowOpened(id) => handle_window_opened(state, id),
         Message::Product(action) => apply_product_action(state, action),
         Message::CameraPoll(result) => handle_camera_poll(state, result),
         Message::PersistReady(generation) => {
@@ -438,6 +519,296 @@ fn update(state: &mut Camlet, message: Message) -> Task<Message> {
     }
 }
 
+fn dismiss_menu_if_unfocused(state: &mut Camlet, generation: u64) -> Task<Message> {
+    if generation == state.menu_focus_generation && state.focused_menu_window.is_none() {
+        close_settings_window(state)
+    } else {
+        Task::none()
+    }
+}
+
+fn apply_menu_product(state: &mut Camlet, action: Action) -> Task<Message> {
+    Task::batch([
+        apply_product_action(state, action),
+        close_settings_window(state),
+    ])
+}
+
+fn open_submenu_immediately(
+    state: &mut Camlet,
+    parent: window::Id,
+    page: MenuPage,
+    anchor_y: f32,
+) -> Task<Message> {
+    cancel_menu_intent(state);
+    cancel_submenu_hover(state);
+    open_submenu_window(state, parent, page, anchor_y)
+}
+
+fn handle_submenu_hover(
+    state: &mut Camlet,
+    parent: window::Id,
+    page: MenuPage,
+    anchor_y: f32,
+) -> Task<Message> {
+    let intent = MenuIntent::Open {
+        parent,
+        page,
+        anchor_y,
+    };
+    if cursor_is_aiming_at_child(state, parent) {
+        defer_menu_intent(state, intent)
+    } else {
+        cancel_menu_intent(state);
+        schedule_submenu_hover(state, parent, page, anchor_y)
+    }
+}
+
+fn handle_submenu_close_hover(state: &mut Camlet, parent: window::Id) -> Task<Message> {
+    let intent = MenuIntent::Close { parent };
+    if cursor_is_aiming_at_child(state, parent) {
+        defer_menu_intent(state, intent)
+    } else {
+        cancel_menu_intent(state);
+        state.submenu_hover_generation = state.submenu_hover_generation.saturating_add(1);
+        let generation = state.submenu_hover_generation;
+        Task::perform(
+            async move {
+                futures_timer::Delay::new(SUBMENU_HOVER_DELAY).await;
+                Message::EvaluateSubmenuClose { parent, generation }
+            },
+            std::convert::identity,
+        )
+    }
+}
+
+fn open_hovered_submenu(
+    state: &mut Camlet,
+    parent: window::Id,
+    page: MenuPage,
+    anchor_y: f32,
+    generation: u64,
+) -> Task<Message> {
+    if generation != state.submenu_hover_generation {
+        return Task::none();
+    }
+    if cursor_is_aiming_at_child(state, parent) {
+        defer_menu_intent(
+            state,
+            MenuIntent::Open {
+                parent,
+                page,
+                anchor_y,
+            },
+        )
+    } else {
+        open_submenu_window(state, parent, page, anchor_y)
+    }
+}
+
+fn evaluate_submenu_close(
+    state: &mut Camlet,
+    parent: window::Id,
+    generation: u64,
+) -> Task<Message> {
+    if generation != state.submenu_hover_generation {
+        return Task::none();
+    }
+    if cursor_is_aiming_at_child(state, parent) {
+        defer_menu_intent(state, MenuIntent::Close { parent })
+    } else {
+        close_submenus_immediately(state, parent)
+    }
+}
+
+fn close_submenus_immediately(state: &mut Camlet, parent: window::Id) -> Task<Message> {
+    cancel_menu_intent(state);
+    cancel_submenu_hover(state);
+    close_submenus_after(state, parent)
+}
+
+fn defer_menu_intent(state: &mut Camlet, intent: MenuIntent) -> Task<Message> {
+    cancel_submenu_hover(state);
+    state.menu_intent_generation = state.menu_intent_generation.saturating_add(1);
+    let generation = state.menu_intent_generation;
+    state.deferred_menu_parent = Some(menu_intent_parent(intent));
+    Task::perform(
+        async move {
+            futures_timer::Delay::new(MENU_AIM_DELAY).await;
+            Message::ResolveMenuIntent { intent, generation }
+        },
+        std::convert::identity,
+    )
+}
+
+fn resolve_menu_intent(state: &mut Camlet, intent: MenuIntent, generation: u64) -> Task<Message> {
+    if generation != state.menu_intent_generation
+        || state.deferred_menu_parent != Some(menu_intent_parent(intent))
+    {
+        return Task::none();
+    }
+    state.deferred_menu_parent = None;
+    match intent {
+        MenuIntent::Open {
+            parent,
+            page,
+            anchor_y,
+        } => open_submenu_immediately(state, parent, page, anchor_y),
+        MenuIntent::Close { parent } => close_submenus_immediately(state, parent),
+    }
+}
+
+const fn menu_intent_parent(intent: MenuIntent) -> window::Id {
+    match intent {
+        MenuIntent::Open { parent, .. } | MenuIntent::Close { parent } => parent,
+    }
+}
+
+fn track_menu_cursor(
+    state: &mut Camlet,
+    window_id: window::Id,
+    local_position: Point,
+) -> Task<Message> {
+    let Some(window_position) = menu_window_position_by_id(state, window_id) else {
+        return Task::none();
+    };
+    let current = Point::new(
+        window_position.x + local_position.x,
+        window_position.y + local_position.y,
+    );
+    let window_changed = state
+        .menu_pointer
+        .is_some_and(|pointer| pointer.window_id != window_id);
+    let previous = state
+        .menu_pointer
+        .filter(|pointer| pointer.window_id == window_id)
+        .map_or(current, |pointer| pointer.current);
+    state.menu_pointer = Some(MenuPointer {
+        window_id,
+        previous,
+        current,
+    });
+
+    if window_changed {
+        cancel_submenu_hover(state);
+    }
+
+    if state
+        .deferred_menu_parent
+        .is_some_and(|parent| parent != window_id)
+    {
+        cancel_menu_intent(state);
+    }
+    Task::none()
+}
+
+fn menu_window_position_by_id(state: &Camlet, id: window::Id) -> Option<Point> {
+    if state.settings_window_id == Some(id) {
+        Some(state.menu_root_position)
+    } else {
+        state
+            .submenu_windows
+            .iter()
+            .find(|popup| popup.id == id)
+            .map(|popup| popup.position)
+    }
+}
+
+fn cursor_is_aiming_at_child(state: &Camlet, parent: window::Id) -> bool {
+    let Some((level, parent_position, parent_size)) = menu_parent_geometry(state, parent) else {
+        return false;
+    };
+    let Some(child) = state.submenu_windows.get(level) else {
+        return false;
+    };
+    let Some(pointer) = state
+        .menu_pointer
+        .filter(|pointer| pointer.window_id == parent)
+    else {
+        return false;
+    };
+
+    let opens_right = child.position.x >= parent_position.x + parent_size.width;
+    let horizontal_motion = pointer.current.x - pointer.previous.x;
+    if (opens_right && horizontal_motion <= 0.25) || (!opens_right && horizontal_motion >= -0.25) {
+        return false;
+    }
+
+    let near_x = if opens_right {
+        child.position.x
+    } else {
+        child.position.x + child.size.width
+    };
+    let top = Point::new(near_x, child.position.y - MENU_AIM_VERTICAL_TOLERANCE);
+    let bottom = Point::new(
+        near_x,
+        child.position.y + child.size.height + MENU_AIM_VERTICAL_TOLERANCE,
+    );
+    point_in_triangle(pointer.current, child.aim_origin, top, bottom)
+}
+
+fn point_in_triangle(point: Point, first: Point, second: Point, third: Point) -> bool {
+    let first_sign = triangle_sign(point, first, second);
+    let second_sign = triangle_sign(point, second, third);
+    let third_sign = triangle_sign(point, third, first);
+    let has_negative = first_sign < 0.0 || second_sign < 0.0 || third_sign < 0.0;
+    let has_positive = first_sign > 0.0 || second_sign > 0.0 || third_sign > 0.0;
+    !(has_negative && has_positive)
+}
+
+fn triangle_sign(point: Point, first: Point, second: Point) -> f32 {
+    (point.x - second.x).mul_add(
+        first.y - second.y,
+        -(first.x - second.x) * (point.y - second.y),
+    )
+}
+
+const fn cancel_menu_intent(state: &mut Camlet) {
+    state.menu_intent_generation = state.menu_intent_generation.saturating_add(1);
+    state.deferred_menu_parent = None;
+}
+
+fn handle_window_opened(state: &Camlet, id: window::Id) -> Task<Message> {
+    if state.settings_window_id == Some(id)
+        || state.submenu_windows.iter().any(|popup| popup.id == id)
+    {
+        window::gain_focus(id)
+    } else if state.window_id == Some(id) {
+        Task::none()
+    } else {
+        // A popup can finish opening after a rapid hover already closed its branch.
+        // Never leave that now-untracked native window alive.
+        window::close(id)
+    }
+}
+
+fn record_monitor_size(state: &mut Camlet, size: Option<Size>) -> Task<Message> {
+    if let Some(size) = size {
+        state.monitor_size = Some(size);
+        let maximum = size
+            .width
+            .min(size.height)
+            .floor()
+            .to_u16()
+            .unwrap_or(MAXIMUM_OVERLAY_SIZE);
+        state.monitor_maximum = maximum.clamp(MINIMUM_WINDOW_SIZE, MAXIMUM_OVERLAY_SIZE);
+    }
+    Task::none()
+}
+
+fn handle_preview_pressed(state: &mut Camlet) -> Task<Message> {
+    if state.settings_window_id.is_some() {
+        return close_settings_window(state);
+    }
+    state.window_id.map_or_else(Task::none, |id| {
+        if state.product.resize_mode {
+            window::drag_resize(id, window::Direction::SouthEast)
+        } else {
+            window::drag(id)
+        }
+    })
+}
+
 fn handle_key_pressed(
     state: &mut Camlet,
     window_id: window::Id,
@@ -478,28 +849,157 @@ fn capture_automation(state: &mut Camlet, path: PathBuf) -> Task<Message> {
 fn open_settings_window(state: &mut Camlet) -> Task<Message> {
     state.panel = Panel::Menu;
     state.diagnostics_state = DiagnosticsState::Ready;
-    state.active_submenu = None;
-    let position = menu_window_position(state, MENU_WINDOW_WIDTH, MENU_WINDOW_HEIGHT);
+    state.focused_menu_window = None;
+    state.menu_focus_generation = state.menu_focus_generation.saturating_add(1);
+    cancel_menu_intent(state);
+    cancel_submenu_hover(state);
+    state.menu_pointer = None;
+    let (position, monitor) = menu_window_geometry(state, MENU_WINDOW_WIDTH, MENU_WINDOW_HEIGHT);
+    state.menu_root_position = position;
+    state.menu_monitor_bounds = Some(monitor);
     let settings =
         popup_window_settings(Size::new(MENU_WINDOW_WIDTH, MENU_WINDOW_HEIGHT), position);
-    let mut tasks = Vec::new();
+    let mut tasks = state
+        .submenu_windows
+        .drain(..)
+        .map(|popup| window::close(popup.id))
+        .collect::<Vec<_>>();
     if let Some(id) = state.settings_window_id.take() {
         tasks.push(window::close(id));
     }
     let (id, open_task) = window::open(settings);
     state.settings_window_id = Some(id);
-    tasks.push(open_task.map(|_| Message::WindowOpened));
+    tasks.push(open_task.map(Message::WindowOpened));
     Task::batch(tasks)
 }
 
-fn navigate_menu_page(state: &mut Camlet, page: Option<MenuPage>) -> Task<Message> {
-    state.active_submenu = page;
-    state.settings_window_id.map_or_else(Task::none, |id| {
-        window::resize(
-            id,
-            Size::new(MENU_WINDOW_WIDTH, menu_page_height(state, page)),
+fn open_submenu_window(
+    state: &mut Camlet,
+    parent: window::Id,
+    page: MenuPage,
+    anchor_y: f32,
+) -> Task<Message> {
+    let Some((level, parent_position, parent_size)) = menu_parent_geometry(state, parent) else {
+        return Task::none();
+    };
+    let mut tasks = Vec::new();
+    if state
+        .submenu_windows
+        .get(level)
+        .is_some_and(|popup| popup.page == page)
+    {
+        tasks.extend(close_submenus_from_level(state, level + 1));
+        return Task::batch(tasks);
+    }
+
+    let size = Size::new(MENU_WINDOW_WIDTH, menu_page_height(state, page));
+    let monitor = state.menu_monitor_bounds.unwrap_or_else(|| {
+        Rectangle::new(
+            Point::ORIGIN,
+            state.monitor_size.unwrap_or(Size::new(1_920.0, 1_080.0)),
         )
-    })
+    });
+    let position = place_submenu(parent_position, parent_size, monitor, size, anchor_y);
+    let aim_origin = state
+        .menu_pointer
+        .filter(|pointer| pointer.window_id == parent)
+        .map_or_else(
+            || {
+                Point::new(
+                    parent_position.x + parent_size.width / 2.0,
+                    parent_position.y + anchor_y + MENU_ROW_HEIGHT / 2.0,
+                )
+            },
+            |pointer| pointer.current,
+        );
+
+    if let Some(popup) = state.submenu_windows.get(level).copied() {
+        // A level owns one native popup for the lifetime of that menu branch. Swapping
+        // its contents avoids an open/close race when the pointer crosses rows quickly.
+        tasks.extend(close_submenus_from_level(state, level + 1));
+        state.submenu_windows[level] = MenuPopup {
+            id: popup.id,
+            page,
+            position,
+            size,
+            aim_origin,
+        };
+        tasks.push(window::resize(popup.id, size));
+        tasks.push(window::move_to(popup.id, position));
+        return Task::batch(tasks);
+    }
+
+    tasks.extend(close_submenus_from_level(state, level));
+    let (id, open_task) = window::open(popup_window_settings(size, position));
+    state.submenu_windows.push(MenuPopup {
+        id,
+        page,
+        position,
+        size,
+        aim_origin,
+    });
+    tasks.push(open_task.map(Message::WindowOpened));
+    Task::batch(tasks)
+}
+
+fn schedule_submenu_hover(
+    state: &mut Camlet,
+    parent: window::Id,
+    page: MenuPage,
+    anchor_y: f32,
+) -> Task<Message> {
+    state.submenu_hover_generation = state.submenu_hover_generation.saturating_add(1);
+    let generation = state.submenu_hover_generation;
+    Task::perform(
+        async move {
+            futures_timer::Delay::new(SUBMENU_HOVER_DELAY).await;
+            Message::OpenHoveredSubmenu {
+                parent,
+                page,
+                anchor_y,
+                generation,
+            }
+        },
+        std::convert::identity,
+    )
+}
+
+const fn cancel_submenu_hover(state: &mut Camlet) {
+    state.submenu_hover_generation = state.submenu_hover_generation.saturating_add(1);
+}
+
+fn menu_parent_geometry(state: &Camlet, parent: window::Id) -> Option<(usize, Point, Size)> {
+    if state.settings_window_id == Some(parent) {
+        return Some((
+            0,
+            state.menu_root_position,
+            Size::new(MENU_WINDOW_WIDTH, MENU_WINDOW_HEIGHT),
+        ));
+    }
+    state
+        .submenu_windows
+        .iter()
+        .position(|popup| popup.id == parent)
+        .map(|index| {
+            let popup = state.submenu_windows[index];
+            (index + 1, popup.position, popup.size)
+        })
+}
+
+fn close_submenus_after(state: &mut Camlet, parent: window::Id) -> Task<Message> {
+    let Some((level, _, _)) = menu_parent_geometry(state, parent) else {
+        return Task::none();
+    };
+    Task::batch(close_submenus_from_level(state, level))
+}
+
+fn close_submenus_from_level(state: &mut Camlet, level: usize) -> Vec<Task<Message>> {
+    let level = level.min(state.submenu_windows.len());
+    state
+        .submenu_windows
+        .drain(level..)
+        .map(|popup| window::close(popup.id))
+        .collect()
 }
 
 fn popup_window_settings(size: Size, position: Point) -> window::Settings {
@@ -512,17 +1012,37 @@ fn popup_window_settings(size: Size, position: Point) -> window::Settings {
         decorations: false,
         transparent: true,
         level: window::Level::AlwaysOnTop,
+        icon: app_icon(),
         exit_on_close_request: false,
         platform_specific: popup_platform_settings(),
         ..window::Settings::default()
     }
 }
 
+fn app_icon() -> Option<window::Icon> {
+    static ICON: OnceLock<Option<window::Icon>> = OnceLock::new();
+    ICON.get_or_init(load_app_icon).clone()
+}
+
+fn load_app_icon() -> Option<window::Icon> {
+    let decoder = png::Decoder::new(std::io::Cursor::new(include_bytes!(
+        "../../../assets/icons/128x128.png"
+    )));
+    let mut reader = decoder.read_info().ok()?;
+    let mut rgba = vec![0; reader.output_buffer_size()?];
+    let info = reader.next_frame(&mut rgba).ok()?;
+    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+        return None;
+    }
+    rgba.truncate(info.buffer_size());
+    window::icon::from_rgba(rgba, info.width, info.height).ok()
+}
+
 #[cfg(target_os = "linux")]
 fn popup_platform_settings() -> window::settings::PlatformSpecific {
     window::settings::PlatformSpecific {
         application_id: "camlet-menu".to_owned(),
-        override_redirect: true,
+        override_redirect: false,
     }
 }
 
@@ -550,27 +1070,45 @@ fn popup_platform_settings() -> window::settings::PlatformSpecific {
 
 fn close_settings_window(state: &mut Camlet) -> Task<Message> {
     state.panel = Panel::Preview;
-    state.active_submenu = None;
-    state
-        .settings_window_id
-        .take()
-        .map_or_else(Task::none, window::close)
+    state.focused_menu_window = None;
+    state.menu_focus_generation = state.menu_focus_generation.saturating_add(1);
+    cancel_menu_intent(state);
+    cancel_submenu_hover(state);
+    state.menu_pointer = None;
+    let mut tasks = close_submenus_from_level(state, 0);
+    if let Some(id) = state.settings_window_id.take() {
+        tasks.push(window::close(id));
+    }
+    Task::batch(tasks)
 }
 
+#[cfg(test)]
 fn menu_window_position(state: &Camlet, width: f32, height: f32) -> Point {
+    menu_window_geometry(state, width, height).0
+}
+
+fn menu_window_geometry(state: &Camlet, width: f32, height: f32) -> (Point, Rectangle) {
     #[cfg(target_os = "linux")]
     if !cfg!(test)
         && display_protocol() == "x11"
         && let Some((pointer, monitor)) = x11_pointer_and_monitor(state.scale_factor)
     {
-        return place_popup_at_pointer(pointer, monitor, width, height);
+        return (
+            place_popup_at_pointer(pointer, monitor, width, height),
+            monitor,
+        );
     }
 
     let overlay = state.product.settings.window;
-    Point::new(
+    let monitor = Rectangle::new(
+        Point::ORIGIN,
+        state.monitor_size.unwrap_or(Size::new(1_920.0, 1_080.0)),
+    );
+    let position = Point::new(
         overlay.x.to_f32().unwrap_or(0.0) + state.preview_cursor.x,
         overlay.y.to_f32().unwrap_or(0.0) + state.preview_cursor.y,
-    )
+    );
+    (position, monitor)
 }
 
 fn place_popup_at_pointer(pointer: Point, monitor: Rectangle, width: f32, height: f32) -> Point {
@@ -586,6 +1124,40 @@ fn place_popup_at_pointer(pointer: Point, monitor: Rectangle, width: f32, height
         (pointer.y - height - gap).max(monitor.y)
     };
     Point::new(x, y)
+}
+
+fn place_submenu(
+    parent_position: Point,
+    parent_size: Size,
+    monitor: Rectangle,
+    submenu_size: Size,
+    anchor_y: f32,
+) -> Point {
+    let gap = 4.0;
+    let right = parent_position.x + parent_size.width + gap;
+    let x = if right + submenu_size.width <= monitor.x + monitor.width {
+        right
+    } else {
+        (parent_position.x - submenu_size.width - gap).max(monitor.x)
+    };
+    let y = (parent_position.y + anchor_y).clamp(
+        monitor.y,
+        (monitor.y + monitor.height - submenu_size.height).max(monitor.y),
+    );
+    Point::new(x, y)
+}
+
+fn keep_window_on_monitor(position: Point, monitor: Rectangle, size: Size) -> Point {
+    Point::new(
+        position.x.clamp(
+            monitor.x,
+            (monitor.x + monitor.width - size.width).max(monitor.x),
+        ),
+        position.y.clamp(
+            monitor.y,
+            (monitor.y + monitor.height - size.height).max(monitor.y),
+        ),
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -639,31 +1211,75 @@ fn x11_pointer_and_monitor(scale_factor: f32) -> Option<(Point, Rectangle)> {
     ))
 }
 
-fn menu_page_height(state: &Camlet, page: Option<MenuPage>) -> f32 {
-    let rows = match page {
-        None | Some(MenuPage::Advanced) => 8,
-        Some(
-            MenuPage::Theme | MenuPage::Shape | MenuPage::RingThickness | MenuPage::CornerRoundness,
-        ) => 7,
-        Some(MenuPage::Language) => 4,
-        Some(MenuPage::Camera) => state.product.cameras.len().max(1) + 1,
-        Some(MenuPage::CameraFps | MenuPage::CameraResolution) => 5,
-        Some(MenuPage::Fit) => 3,
+fn menu_page_height(state: &Camlet, page: MenuPage) -> f32 {
+    let (rows, separators) = match page {
+        MenuPage::Theme | MenuPage::Shape | MenuPage::RingThickness | MenuPage::CornerRoundness => {
+            (6, 0)
+        }
+        MenuPage::Language => (3, 0),
+        MenuPage::Camera => (state.product.cameras.len().max(1), 0),
+        MenuPage::Advanced => (7, 1),
+        MenuPage::CameraFps | MenuPage::CameraResolution => (4, 0),
+        MenuPage::Fit => (2, 0),
     };
-    f32::from(u16::try_from(rows).unwrap_or(u16::MAX)).mul_add(30.0, 14.0)
+    let rows = f32::from(u16::try_from(rows).unwrap_or(u16::MAX));
+    let separators = f32::from(u16::try_from(separators).unwrap_or(u16::MAX));
+    rows.mul_add(
+        MENU_ROW_HEIGHT,
+        separators.mul_add(MENU_SEPARATOR_HEIGHT, MENU_PADDING * 2.0),
+    )
 }
 
 fn handle_window_event(state: &mut Camlet, id: window::Id, event: &window::Event) -> Task<Message> {
-    if state.settings_window_id == Some(id) {
+    let is_menu_window = state.settings_window_id == Some(id)
+        || state.submenu_windows.iter().any(|popup| popup.id == id);
+    if is_menu_window {
         return match event {
+            window::Event::Focused => {
+                state.focused_menu_window = Some(id);
+                state.menu_focus_generation = state.menu_focus_generation.saturating_add(1);
+                Task::none()
+            }
+            window::Event::Unfocused => {
+                cancel_menu_intent(state);
+                cancel_submenu_hover(state);
+                if state.focused_menu_window == Some(id) {
+                    state.focused_menu_window = None;
+                }
+                state.menu_focus_generation = state.menu_focus_generation.saturating_add(1);
+                let generation = state.menu_focus_generation;
+                Task::perform(
+                    async move {
+                        futures_timer::Delay::new(Duration::from_millis(90)).await;
+                        generation
+                    },
+                    Message::DismissMenuIfUnfocused,
+                )
+            }
             window::Event::CloseRequested | window::Event::Closed => {
-                state.settings_window_id = None;
-                state.active_submenu = None;
-                state.panel = Panel::Preview;
-                if matches!(event, window::Event::CloseRequested) {
-                    window::close(id)
+                if state.settings_window_id == Some(id) {
+                    if matches!(event, window::Event::CloseRequested) {
+                        close_settings_window(state)
+                    } else {
+                        state.settings_window_id = None;
+                        state.panel = Panel::Preview;
+                        Task::batch(close_submenus_from_level(state, 0))
+                    }
                 } else {
-                    Task::none()
+                    let index = state
+                        .submenu_windows
+                        .iter()
+                        .position(|popup| popup.id == id)
+                        .unwrap_or(state.submenu_windows.len());
+                    let tasks = if matches!(event, window::Event::CloseRequested) {
+                        close_submenus_from_level(state, index)
+                    } else if index < state.submenu_windows.len() {
+                        state.submenu_windows.remove(index);
+                        close_submenus_from_level(state, index)
+                    } else {
+                        Vec::new()
+                    };
+                    Task::batch(tasks)
                 }
             }
             _ => Task::none(),
@@ -1105,28 +1721,29 @@ fn run_automation_step(state: &mut Camlet) -> Task<Message> {
             delayed_automation_step(Duration::from_millis(250)),
         ]),
         AutomationAction::OpenAdvancedMenu => Task::batch([
-            navigate_menu_page(state, Some(MenuPage::Advanced)),
+            state.settings_window_id.map_or_else(Task::none, |parent| {
+                open_submenu_window(
+                    state,
+                    parent,
+                    MenuPage::Advanced,
+                    root_menu_anchor(MenuPage::Advanced),
+                )
+            }),
             delayed_automation_step(Duration::from_millis(250)),
         ]),
-        AutomationAction::Screenshot(filename) => {
-            let Some(session) = state.automation_session.as_ref() else {
-                return fail_automation(state);
-            };
-            let path = session.output_path(&filename);
-            automation_delay(Duration::from_millis(100), Message::AutomationCapture(path))
+        AutomationAction::OpenAbout => Task::batch([
+            apply_product_action(state, Action::OpenAbout),
+            delayed_automation_step(Duration::from_millis(250)),
+        ]),
+        AutomationAction::OpenResize => Task::batch([
+            apply_product_action(state, Action::SetResizeMode(true)),
+            delayed_automation_step(Duration::from_millis(250)),
+        ]),
+        AutomationAction::Screenshot(filename) => automation_screenshot(state, &filename),
+        AutomationAction::WindowScreenshot(filename) => {
+            automation_window_screenshot(state, &filename)
         }
-        AutomationAction::MenuScreenshot(filename) => {
-            let Some(session) = state.automation_session.as_ref() else {
-                return fail_automation(state);
-            };
-            let Some(id) = state.settings_window_id else {
-                return fail_automation(state);
-            };
-            let path = session.output_path(&filename);
-            window::screenshot(id).map(move |screenshot| {
-                Message::AutomationMenuScreenshotReady(path.clone(), screenshot)
-            })
-        }
+        AutomationAction::MenuScreenshot(filename) => automation_menu_screenshot(state, &filename),
         AutomationAction::Diagnostics(filename) => {
             let diagnostics = diagnostics_json(state);
             let written = state
@@ -1154,6 +1771,43 @@ fn run_automation_step(state: &mut Camlet) -> Task<Message> {
             }
         }
     }
+}
+
+fn automation_screenshot(state: &mut Camlet, filename: &str) -> Task<Message> {
+    let Some(session) = state.automation_session.as_ref() else {
+        return fail_automation(state);
+    };
+    let path = session.output_path(filename);
+    automation_delay(Duration::from_millis(100), Message::AutomationCapture(path))
+}
+
+fn automation_menu_screenshot(state: &mut Camlet, filename: &str) -> Task<Message> {
+    let Some(session) = state.automation_session.as_ref() else {
+        return fail_automation(state);
+    };
+    let Some(id) = state
+        .submenu_windows
+        .last()
+        .map(|popup| popup.id)
+        .or(state.settings_window_id)
+    else {
+        return fail_automation(state);
+    };
+    let path = session.output_path(filename);
+    window::screenshot(id)
+        .map(move |screenshot| Message::AutomationMenuScreenshotReady(path.clone(), screenshot))
+}
+
+fn automation_window_screenshot(state: &mut Camlet, filename: &str) -> Task<Message> {
+    let Some(session) = state.automation_session.as_ref() else {
+        return fail_automation(state);
+    };
+    let Some(id) = state.window_id else {
+        return fail_automation(state);
+    };
+    let path = session.output_path(filename);
+    window::screenshot(id)
+        .map(move |screenshot| Message::AutomationMenuScreenshotReady(path.clone(), screenshot))
 }
 
 fn wait_for_automation_preview(state: &mut Camlet) -> Task<Message> {
@@ -1311,10 +1965,23 @@ fn execute_effect(state: &mut Camlet, effect: &Effect) -> Task<Message> {
         Effect::OpenAbout => {
             state.panel = Panel::About;
             state.diagnostics_state = DiagnosticsState::Ready;
-            state.active_submenu = None;
-            state.settings_window_id.map_or_else(Task::none, |id| {
-                window::resize(id, Size::new(ABOUT_WINDOW_WIDTH, ABOUT_WINDOW_HEIGHT))
-            })
+            let submenu_closes = close_submenus_from_level(state, 0);
+            let about_size = Size::new(ABOUT_WINDOW_WIDTH, ABOUT_WINDOW_HEIGHT);
+            let monitor = state.menu_monitor_bounds.unwrap_or_else(|| {
+                Rectangle::new(
+                    Point::ORIGIN,
+                    state.monitor_size.unwrap_or(Size::new(1_920.0, 1_080.0)),
+                )
+            });
+            let position = keep_window_on_monitor(state.menu_root_position, monitor, about_size);
+            state.menu_root_position = position;
+            let window_tasks = state.settings_window_id.map_or_else(Vec::new, |id| {
+                vec![
+                    window::resize(id, about_size),
+                    window::move_to(id, position),
+                ]
+            });
+            Task::batch(submenu_closes.into_iter().chain(window_tasks))
         }
     }
 }
@@ -1626,12 +2293,22 @@ fn window_view(state: &Camlet, id: window::Id) -> Element<'_, Message> {
     if state.settings_window_id == Some(id) {
         return match state.panel {
             Panel::About => about_view(state),
-            _ => state
-                .active_submenu
-                .map_or_else(|| root_menu_view(state), |_| submenu_view(state)),
+            _ => root_menu_view(state, id),
         };
     }
-    main_view(state)
+    if let Some(popup) = state.submenu_windows.iter().find(|popup| popup.id == id) {
+        return submenu_view(state, popup.page, id);
+    }
+    if state.window_id == Some(id) {
+        main_view(state)
+    } else {
+        // Native popup creation is asynchronous. A popup that was superseded before
+        // WindowOpened arrives must stay transparent instead of inheriting the camera.
+        container(space::horizontal())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
 }
 
 fn main_view(state: &Camlet) -> Element<'_, Message> {
@@ -1661,85 +2338,226 @@ fn main_view(state: &Camlet) -> Element<'_, Message> {
     layers.into()
 }
 
-fn root_menu_view(state: &Camlet) -> Element<'_, Message> {
+fn root_menu_view(state: &Camlet, id: window::Id) -> Element<'_, Message> {
     let catalog = catalog(
         state.product.settings.language,
         state.system_locale.as_deref(),
     );
     let content = column![
-        submenu_button(catalog.theme, MenuPage::Theme),
-        submenu_button(catalog.shape, MenuPage::Shape),
-        submenu_button(catalog.language, MenuPage::Language),
-        submenu_button(catalog.camera_device, MenuPage::Camera),
-        rule::horizontal(1),
-        menu_action_button(catalog.resize, Action::SetResizeMode(true)),
-        submenu_button(catalog.advanced, MenuPage::Advanced),
-        panel_menu_button(catalog.about, Action::OpenAbout),
-        rule::horizontal(1),
-        destructive_menu_button(catalog.close_app, Action::Quit),
+        submenu_button(
+            state,
+            catalog.theme,
+            id,
+            MenuPage::Theme,
+            root_menu_anchor(MenuPage::Theme)
+        ),
+        submenu_button(
+            state,
+            catalog.shape,
+            id,
+            MenuPage::Shape,
+            root_menu_anchor(MenuPage::Shape)
+        ),
+        submenu_button(
+            state,
+            catalog.language,
+            id,
+            MenuPage::Language,
+            root_menu_anchor(MenuPage::Language)
+        ),
+        submenu_button(
+            state,
+            catalog.camera_device,
+            id,
+            MenuPage::Camera,
+            root_menu_anchor(MenuPage::Camera)
+        ),
+        menu_separator(),
+        menu_action_button(catalog.resize, Action::SetResizeMode(true), id),
+        submenu_button(
+            state,
+            catalog.advanced,
+            id,
+            MenuPage::Advanced,
+            root_menu_anchor(MenuPage::Advanced)
+        ),
+        panel_menu_button(catalog.about, Action::OpenAbout, id),
+        menu_separator(),
+        destructive_menu_button(catalog.close_app, Action::Quit, id),
     ]
-    .spacing(1);
+    .spacing(0);
 
-    menu_surface(content)
+    tracked_menu_surface(content, id)
 }
 
-fn submenu_button(label: &str, page: MenuPage) -> Element<'static, Message> {
-    button(
-        row![
-            text(label.to_owned()).size(13),
-            space::horizontal(),
-            text("›").size(16).color(Color::from_rgb8(151, 163, 181)),
-        ]
-        .align_y(iced::Alignment::Center),
+fn submenu_button(
+    state: &Camlet,
+    label: &str,
+    parent: window::Id,
+    page: MenuPage,
+    anchor_y: f32,
+) -> Element<'static, Message> {
+    let active = active_child_page(state, parent) == Some(page);
+    mouse_area(
+        button(
+            row![
+                menu_row_label(label),
+                space::horizontal(),
+                submenu_arrow_icon(),
+            ]
+            .height(Length::Fill)
+            .align_y(iced::Alignment::Center),
+        )
+        .width(Length::Fill)
+        .height(MENU_ROW_HEIGHT)
+        .padding([0, 10])
+        .style(if active {
+            active_submenu_row_style
+        } else {
+            menu_row_style
+        })
+        .on_press(Message::OpenSubmenu {
+            parent,
+            page,
+            anchor_y,
+        }),
     )
-    .width(Length::Fill)
-    .height(29)
-    .padding([3, 9])
-    .style(menu_row_style)
-    .on_press(Message::OpenSubmenu(page))
+    .on_enter(Message::HoverSubmenu {
+        parent,
+        page,
+        anchor_y,
+    })
+    .interaction(mouse::Interaction::Pointer)
     .into()
 }
 
-fn menu_action_button(label: &str, action: Action) -> Element<'static, Message> {
-    button(text(label.to_owned()).size(13))
-        .width(Length::Fill)
-        .height(29)
-        .padding([3, 9])
-        .style(menu_row_style)
-        .on_press(Message::MenuProduct(action))
+fn menu_row_anchor(row: u8, separators_before: u8) -> f32 {
+    f32::from(separators_before).mul_add(
+        MENU_SEPARATOR_HEIGHT,
+        f32::from(row).mul_add(MENU_ROW_HEIGHT, MENU_PADDING),
+    )
+}
+
+fn root_menu_anchor(page: MenuPage) -> f32 {
+    match page {
+        MenuPage::Shape => menu_row_anchor(1, 0),
+        MenuPage::Language => menu_row_anchor(2, 0),
+        MenuPage::Camera => menu_row_anchor(3, 0),
+        MenuPage::Advanced => menu_row_anchor(5, 1),
+        MenuPage::Theme
+        | MenuPage::CameraFps
+        | MenuPage::CameraResolution
+        | MenuPage::Fit
+        | MenuPage::RingThickness
+        | MenuPage::CornerRoundness => menu_row_anchor(0, 0),
+    }
+}
+
+fn active_child_page(state: &Camlet, parent: window::Id) -> Option<MenuPage> {
+    let (level, _, _) = menu_parent_geometry(state, parent)?;
+    state.submenu_windows.get(level).map(|popup| popup.page)
+}
+
+fn menu_label(label: &str) -> iced::widget::Text<'static> {
+    text(label.to_owned()).size(13)
+}
+
+fn menu_row_label(label: &str) -> Element<'static, Message> {
+    container(menu_label(label))
+        .height(Length::Fill)
+        .align_y(iced::Alignment::Center)
         .into()
 }
 
-fn destructive_menu_button(label: &str, action: Action) -> Element<'static, Message> {
-    button(text(label.to_owned()).size(13))
-        .width(Length::Fill)
-        .height(29)
-        .padding([3, 9])
-        .style(destructive_menu_row_style)
-        .on_press(Message::MenuProduct(action))
+fn menu_row_icon(icon: &str, color: Color) -> Element<'static, Message> {
+    container(text(icon.to_owned()).size(15).color(color))
+        .width(16)
+        .height(Length::Fill)
+        .align_x(iced::Alignment::Center)
+        .align_y(iced::Alignment::Center)
         .into()
 }
 
-fn panel_menu_button(label: &str, action: Action) -> Element<'static, Message> {
-    button(text(label.to_owned()).size(13))
-        .width(Length::Fill)
-        .height(29)
-        .padding([3, 9])
-        .style(menu_row_style)
-        .on_press(Message::Product(action))
+fn submenu_arrow_icon() -> Element<'static, Message> {
+    container(
+        container(text("›").size(15).color(Color::from_rgb8(151, 163, 181)))
+            // The glyph's typographic baseline sits optically low even when its line box
+            // is mathematically centered. Extra bottom space raises only the chevron.
+            .padding(iced::padding::bottom(2)),
+    )
+    .width(16)
+    .height(Length::Fill)
+    .align_x(iced::Alignment::Center)
+    .align_y(iced::Alignment::Center)
+    .into()
+}
+
+fn menu_separator() -> Element<'static, Message> {
+    container(rule::horizontal(1))
+        .height(MENU_SEPARATOR_HEIGHT)
+        .center_y(Length::Fill)
         .into()
 }
 
-fn submenu_view(state: &Camlet) -> Element<'_, Message> {
+fn menu_action_button(
+    label: &str,
+    action: Action,
+    parent: window::Id,
+) -> Element<'static, Message> {
+    mouse_area(
+        button(menu_row_label(label))
+            .width(Length::Fill)
+            .height(MENU_ROW_HEIGHT)
+            .padding([0, 10])
+            .style(menu_row_style)
+            .on_press(Message::MenuProduct(action)),
+    )
+    .on_enter(Message::CloseSubmenusAfter(parent))
+    .interaction(mouse::Interaction::Pointer)
+    .into()
+}
+
+fn destructive_menu_button(
+    label: &str,
+    action: Action,
+    parent: window::Id,
+) -> Element<'static, Message> {
+    mouse_area(
+        button(menu_row_label(label))
+            .width(Length::Fill)
+            .height(MENU_ROW_HEIGHT)
+            .padding([0, 10])
+            .style(destructive_menu_row_style)
+            .on_press(Message::MenuProduct(action)),
+    )
+    .on_enter(Message::CloseSubmenusAfter(parent))
+    .interaction(mouse::Interaction::Pointer)
+    .into()
+}
+
+fn panel_menu_button(label: &str, action: Action, parent: window::Id) -> Element<'static, Message> {
+    mouse_area(
+        button(menu_row_label(label))
+            .width(Length::Fill)
+            .height(MENU_ROW_HEIGHT)
+            .padding([0, 10])
+            .style(menu_row_style)
+            .on_press(Message::Product(action)),
+    )
+    .on_enter(Message::CloseSubmenusAfter(parent))
+    .interaction(mouse::Interaction::Pointer)
+    .into()
+}
+
+fn submenu_view(state: &Camlet, page: MenuPage, id: window::Id) -> Element<'_, Message> {
     let catalog = catalog(
         state.product.settings.language,
         state.system_locale.as_deref(),
     );
     let model = MenuModel::from_state(&state.product);
-    let page = state.active_submenu.unwrap_or(MenuPage::Advanced);
     let content = match page {
         MenuPage::Theme => {
-            let mut content = menu_page_header(catalog.theme, None);
+            let mut content = column![].spacing(0);
             for (choice, label) in model.themes.iter().zip(catalog.themes) {
                 content = content.push(menu_choice_button(
                     label,
@@ -1750,7 +2568,7 @@ fn submenu_view(state: &Camlet) -> Element<'_, Message> {
             content
         }
         MenuPage::Shape => {
-            let mut content = menu_page_header(catalog.shape, None);
+            let mut content = column![].spacing(0);
             for (choice, label) in model.shapes.iter().zip(catalog.shapes) {
                 content = content.push(menu_choice_button(
                     label,
@@ -1761,7 +2579,7 @@ fn submenu_view(state: &Camlet) -> Element<'_, Message> {
             content
         }
         MenuPage::Language => {
-            let mut content = menu_page_header(catalog.language, None);
+            let mut content = column![].spacing(0);
             for choice in &model.languages {
                 content = content.push(menu_choice_button(
                     language_label(catalog, choice.value),
@@ -1772,12 +2590,12 @@ fn submenu_view(state: &Camlet) -> Element<'_, Message> {
             content
         }
         MenuPage::Camera => {
-            let mut content = menu_page_header(catalog.camera_device, None);
+            let mut content = column![].spacing(0);
             if model.cameras.is_empty() {
                 content = content.push(
                     container(text(catalog.no_devices).size(12))
-                        .height(29)
-                        .padding([6, 9]),
+                        .height(MENU_ROW_HEIGHT)
+                        .padding([5, 10]),
                 );
             } else {
                 for choice in &model.cameras {
@@ -1790,11 +2608,11 @@ fn submenu_view(state: &Camlet) -> Element<'_, Message> {
             }
             content
         }
-        MenuPage::Advanced => advanced_menu_view(catalog),
-        MenuPage::CameraFps => camera_fps_menu(catalog, &model),
-        MenuPage::CameraResolution => camera_resolution_menu(catalog, &model),
+        MenuPage::Advanced => advanced_menu_view(state, catalog, id),
+        MenuPage::CameraFps => camera_fps_menu(&model),
+        MenuPage::CameraResolution => camera_resolution_menu(&model),
         MenuPage::Fit => {
-            let mut content = menu_page_header(catalog.fit_mode, Some(MenuPage::Advanced));
+            let mut content = column![].spacing(0);
             for (choice, label) in model.fit_modes.iter().zip(catalog.fit_modes) {
                 content = content.push(menu_choice_button(
                     label,
@@ -1805,7 +2623,7 @@ fn submenu_view(state: &Camlet) -> Element<'_, Message> {
             content
         }
         MenuPage::RingThickness => {
-            let mut content = menu_page_header(catalog.ring_thickness, Some(MenuPage::Advanced));
+            let mut content = column![].spacing(0);
             for choice in &model.ring_thicknesses {
                 content = content.push(menu_choice_button(
                     &format!("{} px", choice.value),
@@ -1816,7 +2634,7 @@ fn submenu_view(state: &Camlet) -> Element<'_, Message> {
             content
         }
         MenuPage::CornerRoundness => {
-            let mut content = menu_page_header(catalog.corner_roundness, Some(MenuPage::Advanced));
+            let mut content = column![].spacing(0);
             for choice in &model.corner_roundnesses {
                 content = content.push(menu_choice_button(
                     &format!("{} px", choice.value),
@@ -1828,14 +2646,11 @@ fn submenu_view(state: &Camlet) -> Element<'_, Message> {
         }
     };
 
-    menu_surface(content)
+    tracked_menu_surface(content, id)
 }
 
-fn camera_fps_menu<'a>(
-    catalog: &'a Catalog,
-    model: &MenuModel,
-) -> iced::widget::Column<'a, Message> {
-    let mut content = menu_page_header(catalog.camera_fps, Some(MenuPage::Advanced));
+fn camera_fps_menu(model: &MenuModel) -> iced::widget::Column<'static, Message> {
+    let mut content = column![].spacing(0);
     for choice in &model.camera_fps {
         content = content.push(menu_choice_button(
             &format!("{} FPS", choice.value),
@@ -1846,11 +2661,8 @@ fn camera_fps_menu<'a>(
     content
 }
 
-fn camera_resolution_menu<'a>(
-    catalog: &'a Catalog,
-    model: &MenuModel,
-) -> iced::widget::Column<'a, Message> {
-    let mut content = menu_page_header(catalog.camera_resolution, Some(MenuPage::Advanced));
+fn camera_resolution_menu(model: &MenuModel) -> iced::widget::Column<'static, Message> {
+    let mut content = column![].spacing(0);
     for choice in &model.camera_resolutions {
         content = content.push(menu_choice_button(
             choice.value.label(),
@@ -1861,47 +2673,72 @@ fn camera_resolution_menu<'a>(
     content
 }
 
-fn advanced_menu_view(catalog: &Catalog) -> iced::widget::Column<'static, Message> {
+fn advanced_menu_view(
+    state: &Camlet,
+    catalog: &Catalog,
+    id: window::Id,
+) -> iced::widget::Column<'static, Message> {
     column![
-        menu_page_header_row(catalog.advanced, None),
-        submenu_button(catalog.camera_resolution, MenuPage::CameraResolution),
-        submenu_button(catalog.camera_fps, MenuPage::CameraFps),
-        submenu_button(catalog.fit_mode, MenuPage::Fit),
-        submenu_button(catalog.ring_thickness, MenuPage::RingThickness),
-        submenu_button(catalog.corner_roundness, MenuPage::CornerRoundness),
-        rule::horizontal(1),
-        menu_action_button(catalog.retry_camera, Action::RetryCamera),
-        menu_action_button(catalog.reset_appearance, Action::ResetAppearance),
+        submenu_button(
+            state,
+            catalog.camera_resolution,
+            id,
+            MenuPage::CameraResolution,
+            menu_row_anchor(0, 0)
+        ),
+        submenu_button(
+            state,
+            catalog.camera_fps,
+            id,
+            MenuPage::CameraFps,
+            menu_row_anchor(1, 0)
+        ),
+        submenu_button(
+            state,
+            catalog.fit_mode,
+            id,
+            MenuPage::Fit,
+            menu_row_anchor(2, 0)
+        ),
+        submenu_button(
+            state,
+            catalog.ring_thickness,
+            id,
+            MenuPage::RingThickness,
+            menu_row_anchor(3, 0)
+        ),
+        submenu_button(
+            state,
+            catalog.corner_roundness,
+            id,
+            MenuPage::CornerRoundness,
+            menu_row_anchor(4, 0)
+        ),
+        menu_separator(),
+        menu_action_button(catalog.retry_camera, Action::RetryCamera, id),
+        menu_action_button(catalog.reset_appearance, Action::ResetAppearance, id),
     ]
-    .spacing(1)
-}
-
-fn menu_page_header(label: &str, back: Option<MenuPage>) -> iced::widget::Column<'static, Message> {
-    column![menu_page_header_row(label, back)].spacing(1)
-}
-
-fn menu_page_header_row(label: &str, back: Option<MenuPage>) -> Element<'static, Message> {
-    row![
-        button(text("‹").size(20))
-            .width(28)
-            .height(28)
-            .padding(0)
-            .style(menu_row_style)
-            .on_press(Message::MenuBack(back)),
-        text(label.to_owned()).size(13),
-    ]
-    .height(29)
-    .spacing(5)
-    .align_y(iced::Alignment::Center)
-    .into()
+    .spacing(0)
 }
 
 fn menu_surface<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
     container(content)
         .width(Length::Fill)
         .height(Length::Fill)
-        .padding(7)
+        .padding(MENU_PADDING)
         .style(menu_surface_style)
+        .into()
+}
+
+fn tracked_menu_surface<'a>(
+    content: impl Into<Element<'a, Message>>,
+    id: window::Id,
+) -> Element<'a, Message> {
+    mouse_area(menu_surface(content))
+        .on_move(move |position| Message::MenuCursorMoved {
+            window_id: id,
+            position,
+        })
         .into()
 }
 
@@ -1932,6 +2769,23 @@ fn menu_row_style(_theme: &Theme, status: button::Status) -> button::Style {
     button::Style {
         background,
         text_color: Color::from_rgb8(237, 241, 247),
+        border: Border {
+            radius: 6.0.into(),
+            ..Border::default()
+        },
+        ..button::Style::default()
+    }
+}
+
+fn active_submenu_row_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let background = match status {
+        button::Status::Hovered => Color::from_rgba8(82, 96, 117, 0.78),
+        button::Status::Pressed => Color::from_rgba8(56, 67, 84, 0.86),
+        button::Status::Active | button::Status::Disabled => Color::from_rgba8(67, 79, 98, 0.72),
+    };
+    button::Style {
+        background: Some(Background::Color(background)),
+        text_color: Color::from_rgb8(242, 245, 250),
         border: Border {
             radius: 6.0.into(),
             ..Border::default()
@@ -1982,40 +2836,166 @@ fn about_view(state: &Camlet) -> Element<'_, Message> {
     } else {
         catalog.copy_diagnostics
     };
+    let facts = container(
+        column![
+            row![
+                about_fact(catalog.version, env!("CARGO_PKG_VERSION")),
+                about_fact(catalog.release_channel, channel),
+            ]
+            .spacing(8),
+            row![
+                about_fact(
+                    catalog.platform,
+                    format!("{} / {}", std::env::consts::OS, std::env::consts::ARCH)
+                ),
+                about_fact(catalog.display_protocol, display_protocol()),
+            ]
+            .spacing(8),
+            row![
+                about_fact(catalog.runtime, "Rust + Iced 0.14"),
+                about_fact(catalog.license, "GPL-3.0-only"),
+            ]
+            .spacing(8),
+        ]
+        .spacing(6),
+    )
+    .width(Length::Fill)
+    .padding(8)
+    .style(about_card_style);
     let content = column![
         row![
-            text(catalog.about_window).size(18),
-            button("×").on_press(Message::ClosePanel)
+            text(catalog.about_window).size(19),
+            space::horizontal(),
+            button(
+                container(text("×").size(18))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_x(iced::Alignment::Center)
+                    .align_y(iced::Alignment::Center)
+            )
+            .width(32)
+            .height(32)
+            .padding(0)
+            .style(about_close_button_style)
+            .on_press(Message::ClosePanel)
         ]
-        .spacing(12),
-        text(catalog.about_description).size(13),
-        text(format!(
-            "{}: {}",
-            catalog.version,
-            env!("CARGO_PKG_VERSION")
-        )),
-        text(format!("{}: {channel}", catalog.release_channel)),
-        text(format!(
-            "{}: {} / {}",
-            catalog.platform,
-            std::env::consts::OS,
-            std::env::consts::ARCH
-        )),
-        text(format!(
-            "{}: {}",
-            catalog.display_protocol,
-            display_protocol()
-        )),
-        text(format!("{}: Rust + Iced 0.14", catalog.runtime)),
-        text(format!("{}: GPL-3.0-only", catalog.license)),
-        button("rayan6ms GitHub").on_press(Message::OpenLink(AUTHOR_URL)),
-        button("Camlet GitHub").on_press(Message::OpenLink(PROJECT_URL)),
-        button("Camlet GitHub Issues").on_press(Message::OpenLink(ISSUES_URL)),
-        button(copy_label).on_press(Message::CopyDiagnostics),
+        .height(32)
+        .align_y(iced::Alignment::Center),
+        container(text(catalog.about_description).size(12).line_height(1.35))
+            .width(Length::Fill)
+            .padding([8, 10])
+            .style(about_card_style),
+        facts,
+        row![
+            about_link_button("rayan6ms", AUTHOR_URL),
+            about_link_button("GitHub", PROJECT_URL),
+            about_link_button("Issues", ISSUES_URL),
+        ]
+        .spacing(7),
+        button(
+            container(text(copy_label).size(12))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::Alignment::Center)
+                .align_y(iced::Alignment::Center)
+        )
+        .width(Length::Fill)
+        .height(32)
+        .padding(0)
+        .style(about_diagnostics_button_style)
+        .on_press(Message::CopyDiagnostics),
     ]
-    .spacing(8)
-    .padding(5);
-    menu_surface(scrollable(content).height(Length::Fill))
+    .spacing(9)
+    .padding(12);
+    menu_surface(content)
+}
+
+fn about_fact(label: &str, value: impl Into<String>) -> Element<'static, Message> {
+    container(
+        column![
+            text(label.to_owned())
+                .size(10)
+                .color(Color::from_rgb8(151, 166, 187)),
+            text(value.into()).size(12),
+        ]
+        .spacing(1),
+    )
+    .width(Length::FillPortion(1))
+    .into()
+}
+
+fn about_link_button(label: &str, url: &'static str) -> Element<'static, Message> {
+    button(
+        container(text(label.to_owned()).size(11))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(iced::Alignment::Center)
+            .align_y(iced::Alignment::Center),
+    )
+    .width(Length::FillPortion(1))
+    .height(32)
+    .padding(0)
+    .style(about_link_button_style)
+    .on_press(Message::OpenLink(url))
+    .into()
+}
+
+fn about_card_style(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(Color::from_rgba8(255, 255, 255, 0.035))),
+        border: Border {
+            color: Color::from_rgba8(151, 168, 194, 0.16),
+            width: 1.0,
+            radius: 10.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+fn about_close_button_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let background = match status {
+        button::Status::Hovered => Color::from_rgba8(80, 94, 115, 0.72),
+        button::Status::Pressed => Color::from_rgba8(57, 69, 88, 0.86),
+        button::Status::Active | button::Status::Disabled => Color::TRANSPARENT,
+    };
+    button::Style {
+        background: Some(Background::Color(background)),
+        text_color: Color::from_rgb8(225, 232, 242),
+        border: Border {
+            radius: 8.0.into(),
+            ..Border::default()
+        },
+        ..button::Style::default()
+    }
+}
+
+fn about_link_button_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let background = match status {
+        button::Status::Hovered => Color::from_rgba8(75, 91, 116, 0.72),
+        button::Status::Pressed => Color::from_rgba8(53, 66, 86, 0.86),
+        button::Status::Active | button::Status::Disabled => Color::from_rgba8(55, 67, 86, 0.58),
+    };
+    button::Style {
+        background: Some(Background::Color(background)),
+        text_color: Color::from_rgb8(222, 231, 244),
+        border: Border {
+            color: Color::from_rgba8(151, 168, 194, 0.16),
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..button::Style::default()
+    }
+}
+
+fn about_diagnostics_button_style(theme: &Theme, status: button::Status) -> button::Style {
+    let mut style = about_link_button_style(theme, status);
+    style.background = Some(Background::Color(match status {
+        button::Status::Hovered => Color::from_rgba8(37, 167, 133, 0.88),
+        button::Status::Pressed => Color::from_rgba8(24, 119, 96, 0.94),
+        button::Status::Active | button::Status::Disabled => Color::from_rgba8(28, 139, 111, 0.72),
+    }));
+    style.text_color = Color::WHITE;
+    style
 }
 
 fn startup_error_view(state: &Camlet) -> Element<'_, Message> {
@@ -2057,17 +3037,19 @@ const fn camera_status_text(catalog: &Catalog, status: CameraStatus) -> &'static
 fn menu_choice_button(label: &str, selected: bool, action: Action) -> Element<'static, Message> {
     button(
         row![
-            text(label.to_owned()).size(13),
+            menu_row_label(label),
             space::horizontal(),
-            text(if selected { "✓" } else { "" })
-                .size(13)
-                .color(Color::from_rgb8(132, 236, 205)),
+            menu_row_icon(
+                if selected { "✓" } else { "" },
+                Color::from_rgb8(132, 236, 205)
+            ),
         ]
+        .height(Length::Fill)
         .align_y(iced::Alignment::Center),
     )
     .width(Length::Fill)
-    .height(29)
-    .padding([3, 9])
+    .height(MENU_ROW_HEIGHT)
+    .padding([0, 10])
     .style(if selected {
         selected_menu_row_style
     } else {
@@ -2090,30 +3072,161 @@ fn resize_view(state: &Camlet) -> Element<'_, Message> {
         state.product.settings.language,
         state.system_locale.as_deref(),
     );
-    let controls = column![
-        text(catalog.resize).size(16),
-        text(format!("{} px", state.product.settings.window.width)).size(13),
-        row![
-            button("−").on_press(Message::Product(Action::ResizeByStep {
-                grow: false,
-                maximum: state.monitor_maximum,
-            })),
-            button("+").on_press(Message::Product(Action::ResizeByStep {
-                grow: true,
-                maximum: state.monitor_maximum,
-            })),
-        ]
-        .spacing(8),
-        button(catalog.resize_done).on_press(Message::Product(Action::SetResizeMode(false))),
-    ]
-    .spacing(8)
-    .padding(12);
-    container(controls)
-        .center(Length::Fill)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .style(container::dark)
+    let done = button(
+        container(text(catalog.resize_done).size(11))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(iced::Alignment::Center)
+            .align_y(iced::Alignment::Center),
+    )
+    .width(58)
+    .height(30)
+    .padding(0)
+    .style(resize_control_style)
+    .on_press(Message::Product(Action::SetResizeMode(false)));
+    let card: Element<'_, Message> = if state.product.settings.window.width >= 260 {
+        container(
+            row![resize_status(state, catalog, true), done]
+                .spacing(14)
+                .align_y(iced::Alignment::Center),
+        )
+        .padding([8, 11])
+        .style(resize_card_style)
         .into()
+    } else {
+        container(
+            column![resize_status(state, catalog, false), done]
+                .spacing(7)
+                .align_x(iced::Alignment::Center),
+        )
+        .width(146)
+        .padding([9, 10])
+        .style(resize_card_style)
+        .into()
+    };
+    let resize_handle = mouse_area(
+        button(
+            container(text("↘").size(17))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::Alignment::Center)
+                .align_y(iced::Alignment::Center),
+        )
+        .width(34)
+        .height(34)
+        .padding(0)
+        .style(resize_handle_style)
+        .on_press(Message::BeginWindowResize(window::Direction::SouthEast)),
+    )
+    .interaction(mouse::Interaction::ResizingDiagonallyDown);
+    stack![
+        container(card)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(iced::Alignment::Center)
+            .align_y(iced::Alignment::Start)
+            .padding(8),
+        container(resize_handle)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(iced::Alignment::End)
+            .align_y(iced::Alignment::End)
+            .padding(7),
+    ]
+    .into()
+}
+
+fn resize_status(
+    state: &Camlet,
+    catalog: &Catalog,
+    show_hint: bool,
+) -> iced::widget::Column<'static, Message> {
+    let mut status = column![
+        text(catalog.resize).size(13),
+        text(format!(
+            "{} × {} px",
+            state.product.settings.window.width, state.product.settings.window.height
+        ))
+        .size(11)
+        .color(Color::from_rgb8(185, 200, 220)),
+    ]
+    .spacing(1);
+    if show_hint {
+        status = status.push(
+            text(catalog.resize_hint)
+                .size(10)
+                .color(Color::from_rgb8(145, 163, 188)),
+        );
+    }
+    status
+}
+
+fn resize_card_style(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(Color::WHITE),
+        background: Some(Background::Color(Color::from_rgba8(12, 16, 22, 0.86))),
+        border: Border {
+            color: Color::from_rgba8(255, 255, 255, 0.16),
+            width: 1.0,
+            radius: 12.0.into(),
+        },
+        shadow: Shadow {
+            color: Color::from_rgba8(0, 0, 0, 0.32),
+            offset: Vector::new(0.0, 2.0),
+            blur_radius: 8.0,
+        },
+        ..container::Style::default()
+    }
+}
+
+fn resize_control_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let background = match status {
+        button::Status::Hovered => Color::from_rgba8(255, 255, 255, 0.15),
+        button::Status::Pressed => Color::from_rgba8(255, 255, 255, 0.09),
+        button::Status::Active | button::Status::Disabled => Color::from_rgba8(255, 255, 255, 0.06),
+    };
+    button::Style {
+        background: Some(Background::Color(background)),
+        text_color: Color::WHITE,
+        border: Border {
+            color: Color::from_rgba8(255, 255, 255, 0.13),
+            width: 1.0,
+            radius: 999.0.into(),
+        },
+        ..button::Style::default()
+    }
+}
+
+fn resize_handle_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let (background, border) = match status {
+        button::Status::Hovered => (
+            Color::from_rgba8(24, 119, 96, 0.94),
+            Color::from_rgba8(176, 255, 232, 0.72),
+        ),
+        button::Status::Pressed => (
+            Color::from_rgba8(18, 88, 72, 0.98),
+            Color::from_rgba8(176, 255, 232, 0.84),
+        ),
+        button::Status::Active | button::Status::Disabled => (
+            Color::from_rgba8(12, 16, 22, 0.84),
+            Color::from_rgba8(132, 236, 205, 0.72),
+        ),
+    };
+    button::Style {
+        background: Some(Background::Color(background)),
+        text_color: Color::from_rgb8(176, 255, 232),
+        border: Border {
+            color: border,
+            width: 1.0,
+            radius: 9.0.into(),
+        },
+        shadow: Shadow {
+            color: Color::from_rgba8(0, 0, 0, 0.3),
+            offset: Vector::new(0.0, 1.0),
+            blur_radius: 5.0,
+        },
+        ..button::Style::default()
+    }
 }
 
 #[cfg(test)]
@@ -2132,11 +3245,13 @@ mod tests {
 
     use super::{
         Action, AutomationMode, CameraPollResult, Camlet, DiagnosticsState, FrameSourceKind,
-        Lifecycle, MENU_WINDOW_HEIGHT, MENU_WINDOW_WIDTH, MenuPage, Message, PROJECT_URL, Panel,
-        ScreenshotState, about_view, apply_product_action, diagnostics_json, handle_camera_poll,
+        Lifecycle, MENU_WINDOW_HEIGHT, MENU_WINDOW_WIDTH, MenuPage, MenuPopup, Message,
+        PROJECT_URL, Panel, ScreenshotState, about_view, app_icon, apply_product_action,
+        cursor_is_aiming_at_child, diagnostics_json, handle_camera_poll, handle_window_event,
         handle_window_moved, handle_window_resized, keyboard_action, main_view,
-        menu_window_position, place_popup_at_pointer, popup_window_settings, root_menu_view,
-        submenu_view,
+        menu_window_position, open_submenu_window, place_popup_at_pointer, place_submenu,
+        popup_window_settings, resize_view, root_menu_anchor, root_menu_view, submenu_view, update,
+        window_view,
     };
 
     fn test_state(menu_open: bool) -> Camlet {
@@ -2167,7 +3282,15 @@ mod tests {
             screenshot_state: ScreenshotState::Waiting,
             window_id: None,
             settings_window_id: None,
-            active_submenu: None,
+            submenu_windows: Vec::new(),
+            menu_root_position: Point::ORIGIN,
+            menu_monitor_bounds: None,
+            focused_menu_window: None,
+            menu_focus_generation: 0,
+            submenu_hover_generation: 0,
+            menu_pointer: None,
+            menu_intent_generation: 0,
+            deferred_menu_parent: None,
             preview_cursor: Point::new(112.0, 112.0),
             scale_factor: 1.0,
             monitor_maximum: 640,
@@ -2226,10 +3349,38 @@ mod tests {
     }
 
     #[test]
+    fn resize_panel_starts_native_window_resize_and_can_finish() {
+        let state = test_state(false);
+        let mut resize_ui = simulator(resize_view(&state));
+        resize_ui
+            .click("↘")
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        assert!(resize_ui.into_messages().into_iter().any(|message| {
+            matches!(
+                message,
+                Message::BeginWindowResize(iced::window::Direction::SouthEast)
+            )
+        }));
+
+        let mut done_ui = simulator(resize_view(&state));
+        done_ui
+            .click("Done")
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        assert!(
+            done_ui.into_messages().into_iter().any(|message| {
+                matches!(message, Message::Product(Action::SetResizeMode(false)))
+            })
+        );
+    }
+
+    #[test]
     fn iced_menu_exposes_and_dispatches_appearance_actions() {
-        let mut state = test_state(true);
-        state.active_submenu = Some(MenuPage::Theme);
-        let mut ui = simulator(submenu_view(&state));
+        let state = test_state(true);
+        let mut ui = simulator(submenu_view(
+            &state,
+            MenuPage::Theme,
+            iced::window::Id::unique(),
+        ));
         ui.click("Ocean")
             .unwrap_or_else(|error| unreachable!("{error}"));
         assert!(ui.into_messages().into_iter().any(|message| matches!(
@@ -2240,9 +3391,12 @@ mod tests {
 
     #[test]
     fn iced_menu_exposes_camera_selection_and_retry_actions() {
-        let mut state = test_state(true);
-        state.active_submenu = Some(MenuPage::Camera);
-        let mut camera_ui = simulator(submenu_view(&state));
+        let state = test_state(true);
+        let mut camera_ui = simulator(submenu_view(
+            &state,
+            MenuPage::Camera,
+            iced::window::Id::unique(),
+        ));
         camera_ui
             .click("Camlet synthetic camera")
             .unwrap_or_else(|error| unreachable!("{error}"));
@@ -2250,8 +3404,11 @@ mod tests {
             matches!(message, Message::MenuProduct(Action::SetCamera(id)) if id == "synthetic")
         }));
 
-        state.active_submenu = Some(MenuPage::Advanced);
-        let mut retry_ui = simulator(submenu_view(&state));
+        let mut retry_ui = simulator(submenu_view(
+            &state,
+            MenuPage::Advanced,
+            iced::window::Id::unique(),
+        ));
         retry_ui
             .click("Retry camera")
             .unwrap_or_else(|error| unreachable!("{error}"));
@@ -2265,9 +3422,12 @@ mod tests {
 
     #[test]
     fn advanced_menu_exposes_every_supported_camera_frame_rate() {
-        let mut state = test_state(true);
-        state.active_submenu = Some(MenuPage::CameraFps);
-        let mut ui = simulator(submenu_view(&state));
+        let state = test_state(true);
+        let mut ui = simulator(submenu_view(
+            &state,
+            MenuPage::CameraFps,
+            iced::window::Id::unique(),
+        ));
         ui.click("60 FPS")
             .unwrap_or_else(|error| unreachable!("{error}"));
         assert!(
@@ -2279,9 +3439,12 @@ mod tests {
 
     #[test]
     fn resolution_menu_dispatches_a_camera_restart_choice() {
-        let mut state = test_state(true);
-        state.active_submenu = Some(MenuPage::CameraResolution);
-        let mut ui = simulator(submenu_view(&state));
+        let state = test_state(true);
+        let mut ui = simulator(submenu_view(
+            &state,
+            MenuPage::CameraResolution,
+            iced::window::Id::unique(),
+        ));
         ui.click("1280 × 720")
             .unwrap_or_else(|error| unreachable!("{error}"));
         assert!(ui.into_messages().into_iter().any(|message| {
@@ -2534,7 +3697,7 @@ mod tests {
                 MENU_WINDOW_WIDTH,
                 MENU_WINDOW_HEIGHT,
             ),
-            Point::new(3_556.0, 796.0)
+            Point::new(3_556.0, 1_056.0 - MENU_WINDOW_HEIGHT)
         );
         assert_eq!(
             place_popup_at_pointer(
@@ -2559,9 +3722,283 @@ mod tests {
         assert_eq!(settings.min_size, None);
         assert_eq!(settings.max_size, None);
         #[cfg(target_os = "linux")]
-        assert!(settings.platform_specific.override_redirect);
+        assert!(!settings.platform_specific.override_redirect);
         #[cfg(target_os = "windows")]
         assert!(settings.platform_specific.skip_taskbar);
+    }
+
+    #[test]
+    fn submenus_flip_at_monitor_edges_and_stay_vertically_visible() {
+        let monitor = Rectangle::new(Point::new(1_920.0, 0.0), Size::new(1_920.0, 1_080.0));
+        let submenu = Size::new(260.0, 720.0);
+
+        assert_eq!(
+            place_submenu(
+                Point::new(2_000.0, 200.0),
+                Size::new(260.0, 252.0),
+                monitor,
+                submenu,
+                28.0,
+            ),
+            Point::new(2_264.0, 228.0)
+        );
+        assert_eq!(
+            place_submenu(
+                Point::new(3_560.0, 900.0),
+                Size::new(260.0, 252.0),
+                monitor,
+                submenu,
+                154.0,
+            ),
+            Point::new(3_296.0, 360.0)
+        );
+    }
+
+    #[test]
+    fn opening_a_peer_submenu_replaces_the_existing_branch() {
+        let mut state = test_state(true);
+        let root = iced::window::Id::unique();
+        state.settings_window_id = Some(root);
+        state.menu_monitor_bounds =
+            Some(Rectangle::new(Point::ORIGIN, Size::new(1_920.0, 1_080.0)));
+
+        let _ = open_submenu_window(
+            &mut state,
+            root,
+            MenuPage::Advanced,
+            root_menu_anchor(MenuPage::Advanced),
+        );
+        assert_eq!(state.submenu_windows.len(), 1);
+        assert_eq!(state.submenu_windows[0].page, MenuPage::Advanced);
+        let popup_id = state.submenu_windows[0].id;
+
+        let _ = open_submenu_window(
+            &mut state,
+            root,
+            MenuPage::Theme,
+            root_menu_anchor(MenuPage::Theme),
+        );
+        assert_eq!(state.submenu_windows.len(), 1);
+        assert_eq!(state.submenu_windows[0].page, MenuPage::Theme);
+        assert_eq!(state.submenu_windows[0].id, popup_id);
+    }
+
+    #[test]
+    fn safety_triangle_tracks_real_direction_and_cancels_after_reaching_the_child() {
+        let mut state = test_state(true);
+        let root = iced::window::Id::unique();
+        state.settings_window_id = Some(root);
+        state.menu_monitor_bounds =
+            Some(Rectangle::new(Point::ORIGIN, Size::new(1_920.0, 1_080.0)));
+
+        let _ = update(
+            &mut state,
+            Message::MenuCursorMoved {
+                window_id: root,
+                position: Point::new(120.0, 168.0),
+            },
+        );
+        let _ = open_submenu_window(
+            &mut state,
+            root,
+            MenuPage::Advanced,
+            root_menu_anchor(MenuPage::Advanced),
+        );
+        let child = state.submenu_windows[0].id;
+
+        let _ = update(
+            &mut state,
+            Message::MenuCursorMoved {
+                window_id: root,
+                position: Point::new(180.0, 190.0),
+            },
+        );
+        assert!(cursor_is_aiming_at_child(&state, root));
+
+        let _ = update(
+            &mut state,
+            Message::HoverSubmenu {
+                parent: root,
+                page: MenuPage::Theme,
+                anchor_y: root_menu_anchor(MenuPage::Theme),
+            },
+        );
+        let deferred_generation = state.menu_intent_generation;
+        assert_eq!(state.deferred_menu_parent, Some(root));
+        assert_eq!(state.submenu_windows[0].page, MenuPage::Advanced);
+
+        let _ = update(
+            &mut state,
+            Message::MenuCursorMoved {
+                window_id: child,
+                position: Point::new(8.0, 20.0),
+            },
+        );
+        assert_eq!(state.deferred_menu_parent, None);
+        let _ = update(
+            &mut state,
+            Message::ResolveMenuIntent {
+                intent: super::MenuIntent::Open {
+                    parent: root,
+                    page: MenuPage::Theme,
+                    anchor_y: root_menu_anchor(MenuPage::Theme),
+                },
+                generation: deferred_generation,
+            },
+        );
+        assert_eq!(state.submenu_windows[0].page, MenuPage::Advanced);
+
+        state.menu_pointer = Some(super::MenuPointer {
+            window_id: root,
+            previous: Point::new(180.0, 190.0),
+            current: Point::new(160.0, 190.0),
+        });
+        assert!(!cursor_is_aiming_at_child(&state, root));
+    }
+
+    #[test]
+    fn safety_triangle_supports_submenus_that_open_to_the_left() {
+        let mut state = test_state(true);
+        let root = iced::window::Id::unique();
+        state.settings_window_id = Some(root);
+        state.menu_root_position = Point::new(600.0, 100.0);
+        state.menu_monitor_bounds = Some(Rectangle::new(Point::ORIGIN, Size::new(900.0, 700.0)));
+
+        let _ = update(
+            &mut state,
+            Message::MenuCursorMoved {
+                window_id: root,
+                position: Point::new(100.0, 168.0),
+            },
+        );
+        let _ = open_submenu_window(
+            &mut state,
+            root,
+            MenuPage::Advanced,
+            root_menu_anchor(MenuPage::Advanced),
+        );
+        assert!(state.submenu_windows[0].position.x < state.menu_root_position.x);
+
+        let _ = update(
+            &mut state,
+            Message::MenuCursorMoved {
+                window_id: root,
+                position: Point::new(70.0, 180.0),
+            },
+        );
+        assert!(cursor_is_aiming_at_child(&state, root));
+    }
+
+    #[test]
+    fn embedded_window_icon_is_the_generated_rust_icon() {
+        let (rgba, size) = app_icon()
+            .unwrap_or_else(|| unreachable!("generated icon must decode"))
+            .into_raw();
+        assert_eq!(size, Size::new(128, 128));
+        assert_eq!(rgba.len(), 128 * 128 * 4);
+        assert!(rgba.chunks_exact(4).any(|pixel| pixel[3] > 0));
+    }
+
+    #[test]
+    fn only_the_latest_rapid_hover_can_open_a_submenu() {
+        let mut state = test_state(true);
+        let root = iced::window::Id::unique();
+        state.settings_window_id = Some(root);
+        state.menu_monitor_bounds =
+            Some(Rectangle::new(Point::ORIGIN, Size::new(1_920.0, 1_080.0)));
+
+        let _ = update(
+            &mut state,
+            Message::HoverSubmenu {
+                parent: root,
+                page: MenuPage::Advanced,
+                anchor_y: root_menu_anchor(MenuPage::Advanced),
+            },
+        );
+        let stale_generation = state.submenu_hover_generation;
+        let _ = update(
+            &mut state,
+            Message::HoverSubmenu {
+                parent: root,
+                page: MenuPage::Theme,
+                anchor_y: root_menu_anchor(MenuPage::Theme),
+            },
+        );
+        let current_generation = state.submenu_hover_generation;
+
+        let _ = update(
+            &mut state,
+            Message::OpenHoveredSubmenu {
+                parent: root,
+                page: MenuPage::Advanced,
+                anchor_y: root_menu_anchor(MenuPage::Advanced),
+                generation: stale_generation,
+            },
+        );
+        assert!(state.submenu_windows.is_empty());
+
+        let _ = update(
+            &mut state,
+            Message::OpenHoveredSubmenu {
+                parent: root,
+                page: MenuPage::Theme,
+                anchor_y: root_menu_anchor(MenuPage::Theme),
+                generation: current_generation,
+            },
+        );
+        assert_eq!(state.submenu_windows.len(), 1);
+        assert_eq!(state.submenu_windows[0].page, MenuPage::Theme);
+    }
+
+    #[test]
+    fn an_untracked_native_window_never_falls_back_to_the_camera_view() {
+        let mut state = test_state(false);
+        let main = iced::window::Id::unique();
+        state.window_id = Some(main);
+        state.product.camera_status = camlet_core::state::CameraStatus::Error;
+
+        let mut main_ui = simulator(window_view(&state, main));
+        assert!(main_ui.click("Retry camera").is_ok());
+
+        let stale_popup = iced::window::Id::unique();
+        let mut stale_ui = simulator(window_view(&state, stale_popup));
+        assert!(stale_ui.click("Retry camera").is_err());
+    }
+
+    #[test]
+    fn menu_focus_handoff_survives_but_an_outside_click_dismisses_every_popup() {
+        let mut state = test_state(true);
+        let root = iced::window::Id::unique();
+        let child = iced::window::Id::unique();
+        state.settings_window_id = Some(root);
+        state.submenu_windows.push(MenuPopup {
+            id: child,
+            page: MenuPage::Advanced,
+            position: Point::new(264.0, 154.0),
+            size: Size::new(260.0, 215.0),
+            aim_origin: Point::new(240.0, 168.0),
+        });
+        state.focused_menu_window = Some(root);
+
+        let _ = handle_window_event(&mut state, root, &iced::window::Event::Unfocused);
+        let stale_generation = state.menu_focus_generation;
+        let _ = handle_window_event(&mut state, child, &iced::window::Event::Focused);
+        let _ = update(
+            &mut state,
+            Message::DismissMenuIfUnfocused(stale_generation),
+        );
+        assert_eq!(state.settings_window_id, Some(root));
+        assert_eq!(state.submenu_windows.len(), 1);
+
+        let _ = handle_window_event(&mut state, child, &iced::window::Event::Unfocused);
+        let outside_click_generation = state.menu_focus_generation;
+        let _ = update(
+            &mut state,
+            Message::DismissMenuIfUnfocused(outside_click_generation),
+        );
+        assert_eq!(state.settings_window_id, None);
+        assert!(state.submenu_windows.is_empty());
+        assert_eq!(state.panel, Panel::Preview);
     }
 
     #[test]
@@ -2633,7 +4070,7 @@ mod tests {
 
         let mut link_ui = simulator(about_view(&about));
         link_ui
-            .click("Camlet GitHub")
+            .click("GitHub")
             .unwrap_or_else(|error| unreachable!("{error}"));
         assert!(
             link_ui
@@ -2670,7 +4107,7 @@ mod tests {
     #[test]
     fn advanced_about_and_quit_menu_actions_are_reachable() {
         let state = test_state(true);
-        let mut about_ui = simulator(root_menu_view(&state));
+        let mut about_ui = simulator(root_menu_view(&state, iced::window::Id::unique()));
         about_ui
             .click("About")
             .unwrap_or_else(|error| unreachable!("{error}"));
@@ -2681,7 +4118,7 @@ mod tests {
                 .any(|message| matches!(message, Message::Product(Action::OpenAbout)))
         );
 
-        let mut quit_ui = simulator(root_menu_view(&state));
+        let mut quit_ui = simulator(root_menu_view(&state, iced::window::Id::unique()));
         quit_ui
             .click("Close Camlet")
             .unwrap_or_else(|error| unreachable!("{error}"));

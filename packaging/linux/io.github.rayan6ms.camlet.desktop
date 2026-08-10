@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Camlet
+GenericName=Camera Overlay
+Comment=Native floating camera overlay
+Exec=camlet
+Icon=io.github.rayan6ms.camlet
+Terminal=false
+Categories=AudioVideo;Video;
+Keywords=camera;webcam;overlay;recording;presentation;
+StartupNotify=true
+StartupWMClass=camlet

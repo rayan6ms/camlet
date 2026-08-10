@@ -42,8 +42,14 @@ pub enum AutomationAction {
     OpenMenu,
     /// Open the advanced submenu through the production window path.
     OpenAdvancedMenu,
+    /// Open the About panel through the production window path.
+    OpenAbout,
+    /// Enter native window resize mode through the production window path.
+    OpenResize,
     /// Capture the real compositor output into this validated relative filename.
     Screenshot(String),
+    /// Capture the main window without overlay-reference validation.
+    WindowScreenshot(String),
     /// Capture the open context-menu window into this validated relative filename.
     MenuScreenshot(String),
     /// Export redacted diagnostics into this validated relative filename.
@@ -184,7 +190,10 @@ enum ScriptAction {
     Delay { milliseconds: u64 },
     OpenMenu,
     OpenAdvancedMenu,
+    OpenAbout,
+    OpenResize,
     Screenshot { file: String },
+    WindowScreenshot { file: String },
     MenuScreenshot { file: String },
     Diagnostics { file: String },
     Quit,
@@ -240,8 +249,13 @@ fn validate_and_expand(script: Script) -> Result<VecDeque<AutomationAction>, Aut
             ScriptAction::OpenAdvancedMenu => {
                 actions.push_back(AutomationAction::OpenAdvancedMenu);
             }
+            ScriptAction::OpenAbout => actions.push_back(AutomationAction::OpenAbout),
+            ScriptAction::OpenResize => actions.push_back(AutomationAction::OpenResize),
             ScriptAction::Screenshot { file } if valid_filename(&file) => {
                 actions.push_back(AutomationAction::Screenshot(file));
+            }
+            ScriptAction::WindowScreenshot { file } if valid_filename(&file) => {
+                actions.push_back(AutomationAction::WindowScreenshot(file));
             }
             ScriptAction::MenuScreenshot { file } if valid_filename(&file) => {
                 actions.push_back(AutomationAction::MenuScreenshot(file));

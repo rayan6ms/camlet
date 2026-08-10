@@ -64,6 +64,8 @@ pub struct Catalog {
     pub settings_hint: &'static str,
     /// Resize action.
     pub resize: &'static str,
+    /// Native resize gesture guidance.
+    pub resize_hint: &'static str,
     /// Finish resize action.
     pub resize_done: &'static str,
     /// Advanced menu heading.
@@ -156,7 +158,8 @@ pub const ENGLISH: Catalog = Catalog {
     close_app: "Close Camlet",
     preview: "Webcam overlay preview",
     settings_hint: "Right click to open settings",
-    resize: "Resize",
+    resize: "Resize window",
+    resize_hint: "Drag the corner to resize",
     resize_done: "Done",
     advanced: "Advanced settings",
     system: "System",
@@ -222,7 +225,8 @@ pub const PORTUGUESE_BRAZIL: Catalog = Catalog {
     close_app: "Fechar Camlet",
     preview: "Pré-visualização do overlay da webcam",
     settings_hint: "Clique com o botão direito para abrir as configurações",
-    resize: "Redimensionar",
+    resize: "Redimensionar janela",
+    resize_hint: "Arraste o canto para redimensionar",
     resize_done: "Concluir",
     advanced: "Configurações avançadas",
     system: "Sistema",

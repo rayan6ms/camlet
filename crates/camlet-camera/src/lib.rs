@@ -330,11 +330,8 @@ impl FrameSource for NokhwaFrameSource {
 
         self.stop();
         let open_started = Instant::now();
-        let requested = RequestedFormat::new::<RgbAFormat>(RequestedFormatType::None);
-        let mut camera =
-            Camera::new(index.clone(), requested).map_err(|error| map_nokhwa_error(&error))?;
+        let mut camera = open_configured_camera(index.clone(), request)?;
         performance_trace("camera.open", open_started);
-        configure_camera(&mut camera, request)?;
         let stream_started = Instant::now();
         camera
             .open_stream()
@@ -385,6 +382,36 @@ impl FrameSource for NokhwaFrameSource {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(camera)));
         self.active_index = None;
         self.next_sequence = 0;
+    }
+}
+
+fn open_configured_camera(
+    index: CameraIndex,
+    request: CaptureRequest,
+) -> Result<Camera, CameraError> {
+    let exact_format = CameraFormat::new_from(
+        request.width,
+        request.height,
+        FrameFormat::YUYV,
+        requested_fps(request),
+    );
+    let exact_request =
+        RequestedFormat::new::<RgbAFormat>(RequestedFormatType::Exact(exact_format));
+    match Camera::new(index.clone(), exact_request) {
+        Ok(camera) => Ok(camera),
+        Err(error)
+            if matches!(
+                map_nokhwa_error(&error),
+                CameraError::Backend | CameraError::DeviceNotFound
+            ) =>
+        {
+            let fallback = RequestedFormat::new::<RgbAFormat>(RequestedFormatType::None);
+            let mut camera =
+                Camera::new(index, fallback).map_err(|error| map_nokhwa_error(&error))?;
+            configure_camera(&mut camera, request)?;
+            Ok(camera)
+        }
+        Err(error) => Err(map_nokhwa_error(&error)),
     }
 }
 

@@ -4,6 +4,7 @@ target/
 # Native packages and test evidence
 *.AppImage
 *.deb
+*.flatpak
 *.rpm
 *.exe
 *.msi
@@ -37,3 +38,4 @@ Thumbs.db
 
 # Package work directories
 .flatpak-builder/
+packaging/flatpak/vendor/

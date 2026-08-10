@@ -71,3 +71,56 @@ jobs:
             ${{ runner.temp }}/camlet-package-windows/SHA256SUMS.json
           if-no-files-found: error
           retention-days: 14
+
+  rpm:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust and RPM build dependencies
+        run: |
+          dnf install --assumeyes rust cargo clang clang-devel gcc gcc-c++ libxkbcommon-devel wayland-devel libX11-devel libXcursor-devel libXi-devel libXrandr-devel mesa-libGL-devel rpm-build rpmdevtools rpmlint desktop-file-utils appstream
+      - name: Build and validate RPM
+        run: |
+          cargo build --workspace --release --locked
+          scripts/build-rpm.sh
+          rpm="$(find target/packages -maxdepth 1 -name '*.rpm' -print -quit)"
+          test -n "$rpm"
+          rpmlint "$rpm" packaging/rpm/camlet.spec
+          rpm -K "$rpm"
+          rpm -qpl "$rpm"
+      - name: Upload RPM
+        uses: actions/upload-artifact@v7
+        with:
+          name: camlet-rpm-package
+          path: target/packages/*.rpm
+          if-no-files-found: error
+          retention-days: 14
+
+  flatpak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Flatpak build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 org.freedesktop.Sdk.Extension.rust-stable//25.08 org.freedesktop.Sdk.Extension.llvm21//25.08
+      - name: Fetch locked Rust dependencies
+        run: cargo fetch --locked
+      - name: Build, install, run, and uninstall Flatpak
+        env:
+          CAMLET_TEST_FLATPAK: "1"
+        run: scripts/build-flatpak.sh
+      - name: Upload Flatpak
+        uses: actions/upload-artifact@v7
+        with:
+          name: camlet-flatpak-package
+          path: target/packages/*.flatpak
+          if-no-files-found: error
+          retention-days: 14

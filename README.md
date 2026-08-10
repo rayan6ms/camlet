@@ -2,7 +2,7 @@
 <h1 align="center">Camlet</h1>
 
 <p align="center">
-  <img src="./assets/icons/256x256.png" alt="Camlet icon" width="128" height="128">
+  <img src="./assets/camlet-rust.svg" alt="Camlet icon" width="128" height="128">
 </p>
 
 <p align="center">
@@ -25,6 +25,19 @@
 </p>
 <!-- markdownlint-enable MD033 MD041 -->
 
+## Choose the right Camlet
+
+Camlet has two distinct desktop implementations:
+
+| Version | Status | Technology | Where to find it |
+| --- | --- | --- | --- |
+| **Camlet 0.2.x native** | **Recommended and actively developed** | Rust, Iced, and WGPU; no browser or webview | This `rewrite/iced` branch and every release asset whose name starts with `camlet-rust` |
+| Camlet 0.1.x legacy | Maintenance-only legacy version | Electron and TypeScript | The `master` branch and the [0.1.x releases](https://github.com/rayan6ms/camlet/releases?q=v0.1) |
+
+The icon at the top of this README is the native Rust version's icon. Installing
+0.2.x does not require Node.js or Electron. Users who specifically need the old
+Electron implementation should download a 0.1.x release instead.
+
 ## Features
 
 - native Rust application with no browser or webview
@@ -38,13 +51,21 @@
 - English and Brazilian Portuguese interfaces
 - deterministic automation and visual regression coverage
 
-## Download
+## Download the native Rust version
 
-The GitHub release provides:
+The current GitHub release provides these clearly labelled native packages:
 
-- Linux x86_64 AppImage
-- Debian/Ubuntu x86_64 deb package
-- Windows x86_64 installer
+| Artifact | Intended system |
+| --- | --- |
+| `camlet-rust_*_x86_64.AppImage` | Portable Linux x86_64 |
+| `camlet-rust_*_amd64.deb` | Debian/Ubuntu x86_64 |
+| `camlet-rust-*.x86_64.rpm` | Fedora-compatible Linux x86_64 |
+| `camlet-rust_*_x86_64.flatpak` | Sandboxed Linux x86_64 bundle; downloads the Freedesktop runtime when installed |
+| `camlet-rust_*_x64-setup.exe` | Windows x86_64 installer |
+
+The Flatpak needs camera and graphics-device access and uses X11/Xwayland for
+reliable overlay positioning. It does not receive network or home-directory
+access. Install the downloaded bundle with `flatpak install --user ./camlet-rust_*.flatpak`.
 
 Release builds are currently unsigned. macOS packages are not yet provided.
 
@@ -76,6 +97,8 @@ Build installable packages with `cargo-packager` 0.11.8:
 ```bash
 cargo install cargo-packager --version 0.11.8 --locked
 cargo packager --config Packager.toml --formats appimage,deb
+scripts/build-rpm.sh
+scripts/build-flatpak.sh
 # Windows:
 cargo packager --config Packager.toml --formats nsis
 ```

@@ -15,12 +15,13 @@ default-run = "camlet"
 
 [dependencies]
 bytemuck.workspace = true
-camlet-camera = { path = "../camlet-camera", version = "=0.2.0" }
-camlet-core = { path = "../camlet-core", version = "=0.2.0" }
+camlet-camera = { path = "../camlet-camera", version = "=0.2.1" }
+camlet-core = { path = "../camlet-core", version = "=0.2.1" }
 directories.workspace = true
 futures-timer.workspace = true
 iced.workspace = true
 num-traits.workspace = true
+png.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sys-locale.workspace = true

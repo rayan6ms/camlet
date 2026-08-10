@@ -287,7 +287,7 @@ pub enum Action {
     MoveWindow { x: i32, y: i32 },
     /// Move by one or 24 logical pixels.
     NudgeWindow { x: i32, y: i32, accelerated: bool },
-    /// Resize around the center by one menu step.
+    /// Resize the native overlay window by one menu step.
     ResizeByStep { grow: bool, maximum: u16 },
     /// Enter or leave resize mode.
     SetResizeMode(bool),

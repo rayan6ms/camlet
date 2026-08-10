@@ -306,7 +306,7 @@ dependencies = [
 
 [[package]]
 name = "camlet"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bytemuck",
  "camlet-camera",
@@ -316,6 +316,7 @@ dependencies = [
  "iced",
  "iced_test",
  "num-traits",
+ "png",
  "serde",
  "serde_json",
  "sys-locale",
@@ -327,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "camlet-camera"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-channel",
  "nokhwa",
@@ -336,7 +337,7 @@ dependencies = [
 
 [[package]]
 name = "camlet-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "atomic-write-file",
  "proptest",

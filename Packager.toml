@@ -1,6 +1,6 @@
 name = "camlet"
 product-name = "Camlet"
-version = "0.2.0"
+version = "0.2.1"
 identifier = "io.github.rayan6ms.camlet"
 out-dir = "target/packages"
 binaries-dir = "target/release"
@@ -11,6 +11,7 @@ authors = ["Camlet contributors"]
 publisher = "Camlet contributors"
 license-file = "LICENSE"
 category = "Utility"
+# Generated from assets/camlet-rust.svg by scripts/generate-icons.sh.
 icons = [
 	"assets/icon.ico",
 	"assets/icons/32x32.png",

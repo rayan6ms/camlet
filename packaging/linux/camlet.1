@@ -1,0 +1,45 @@
+.TH CAMLET 1 "August 2026" "Camlet 0.2.1" "User Commands"
+.SH NAME
+camlet \- native floating camera overlay
+.SH SYNOPSIS
+.B camlet
+.RI [ options ]
+.SH DESCRIPTION
+Camlet is a lightweight, frameless, always-on-top camera overlay built with
+Rust, Iced, and WGPU. Drag the camera with the left mouse button and open its
+settings menu with the right mouse button.
+.SH OPTIONS
+.TP
+.BR --frame-source " " <real|synthetic>
+Select the camera frame producer. The default is
+.BR real .
+.TP
+.BR --profile-dir " " <directory>
+Override the native settings directory.
+.TP
+.BR --screenshot " " <path.ppm>
+Capture the native window over white and exit.
+.TP
+.B --automation-check
+Validate the automation configuration and exit without opening a window.
+.TP
+.B --automation-exit
+Open the window and close it automatically.
+.TP
+.BR --automation-script " " <file>
+Run a validated unattended scenario.
+.TP
+.BR --automation-output " " <directory>
+Write scenario readiness and results to the directory.
+.TP
+.BR -h , " " --help
+Print command-line help.
+.TP
+.BR -V , " " --version
+Print the application version.
+.SH FILES
+Camlet stores its settings in the platform-native user configuration directory.
+.SH BUGS
+Report bugs at https://github.com/rayan6ms/camlet/issues.
+.SH LICENSE
+GPL-3.0-only.

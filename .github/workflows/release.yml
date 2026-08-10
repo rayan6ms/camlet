@@ -27,7 +27,10 @@ jobs:
           appimage="$(find target/packages -maxdepth 1 -name '*.AppImage' -print -quit)"
           deb="$(find target/packages -maxdepth 1 -name '*.deb' -print -quit)"
           scripts/test-linux-packages.sh "$appimage" "$deb" "$RUNNER_TEMP/camlet-release-linux"
-          cp "$RUNNER_TEMP/camlet-release-linux/SHA256SUMS" target/packages/SHA256SUMS-linux.txt
+          version="${GITHUB_REF_NAME#v}"
+          mv "$appimage" "target/packages/camlet-rust_${version}_x86_64.AppImage"
+          mv "$deb" "target/packages/camlet-rust_${version}_amd64.deb"
+          (cd target/packages && sha256sum camlet-rust_*.AppImage camlet-rust_*.deb > SHA256SUMS-linux.txt)
           (cd target/packages && sha256sum --check SHA256SUMS-linux.txt)
       - uses: actions/upload-artifact@v7
         with:
@@ -54,7 +57,10 @@ jobs:
           $installer = Get-ChildItem target/packages -Filter "*.exe" | Select-Object -First 1
           if ($null -eq $installer) { throw "NSIS installer was not generated" }
           scripts/test-windows-package.ps1 -Installer $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/camlet-release-windows"
-          Get-FileHash $installer.FullName -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } | Set-Content target/packages/SHA256SUMS-windows.txt
+          $version = $env:GITHUB_REF_NAME.TrimStart("v")
+          $renamed = Join-Path $installer.DirectoryName "camlet-rust_${version}_x64-setup.exe"
+          Move-Item $installer.FullName $renamed
+          Get-FileHash $renamed -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } | Set-Content target/packages/SHA256SUMS-windows.txt
       - uses: actions/upload-artifact@v7
         with:
           name: release-windows
@@ -63,8 +69,62 @@ jobs:
             target/packages/SHA256SUMS-windows.txt
           if-no-files-found: error
 
+  rpm:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust and RPM build dependencies
+        run: |
+          dnf install --assumeyes rust cargo clang clang-devel gcc gcc-c++ libxkbcommon-devel wayland-devel libX11-devel libXcursor-devel libXi-devel libXrandr-devel mesa-libGL-devel rpm-build rpmdevtools rpmlint desktop-file-utils appstream
+      - name: Build and validate RPM
+        run: |
+          cargo build --workspace --release --locked
+          scripts/build-rpm.sh
+          rpm="$(find target/packages -maxdepth 1 -name '*.rpm' -print -quit)"
+          test -n "$rpm"
+          rpmlint "$rpm" packaging/rpm/camlet.spec
+          rpm -K "$rpm"
+          rpm -qpl "$rpm"
+          (cd target/packages && sha256sum -- *.rpm > SHA256SUMS-rpm.txt)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-rpm
+          path: |
+            target/packages/*.rpm
+            target/packages/SHA256SUMS-rpm.txt
+          if-no-files-found: error
+
+  flatpak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Flatpak build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 org.freedesktop.Sdk.Extension.rust-stable//25.08 org.freedesktop.Sdk.Extension.llvm21//25.08
+      - name: Fetch locked Rust dependencies
+        run: cargo fetch --locked
+      - name: Build, install, run, and uninstall Flatpak
+        env:
+          CAMLET_TEST_FLATPAK: "1"
+        run: scripts/build-flatpak.sh
+      - name: Create Flatpak checksum
+        run: (cd target/packages && sha256sum -- *.flatpak > SHA256SUMS-flatpak.txt)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-flatpak
+          path: |
+            target/packages/*.flatpak
+            target/packages/SHA256SUMS-flatpak.txt
+          if-no-files-found: error
+
   publish:
-    needs: [linux, windows]
+    needs: [linux, windows, rpm, flatpak]
     runs-on: ubuntu-latest
     permissions:
       contents: write

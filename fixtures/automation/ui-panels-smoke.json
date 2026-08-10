@@ -1,0 +1,13 @@
+{
+	"schemaVersion": 1,
+	"actions": [
+		{ "type": "wait-for-preview" },
+		{ "type": "open-menu" },
+		{ "type": "open-about" },
+		{ "type": "menu-screenshot", "file": "about.ppm" },
+		{ "type": "open-menu" },
+		{ "type": "open-resize" },
+		{ "type": "window-screenshot", "file": "resize.ppm" },
+		{ "type": "quit" }
+	]
+}

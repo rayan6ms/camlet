@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.88"
 authors = ["Camlet contributors"]
@@ -32,6 +32,7 @@ iced = { version = "0.14.0", default-features = false, features = [
 ] }
 num-traits = "0.2.19"
 nokhwa = { version = "0.10.11", default-features = false, features = ["decoding", "input-native"] }
+png = "0.18.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 sys-locale = "0.3.2"
