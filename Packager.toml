@@ -1,6 +1,6 @@
 name = "camlet"
 product-name = "Camlet"
-version = "0.2.3"
+version = "0.2.4"
 identifier = "io.github.rayan6ms.camlet"
 out-dir = "target/packages"
 binaries-dir = "target/release"

@@ -14,6 +14,10 @@ use nokhwa::utils::{
     ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
 };
 
+const CAMERA_START_ATTEMPTS: u8 = 5;
+const CAMERA_START_RETRY_DELAY: Duration = Duration::from_millis(500);
+const TRANSIENT_FRAME_ERROR_LIMIT: u8 = 3;
+
 /// A camera that can be shown in the selection menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CameraDevice {
@@ -264,6 +268,7 @@ pub struct NokhwaFrameSource {
     active_index: Option<CameraIndex>,
     devices: Vec<CachedCameraDevice>,
     next_sequence: u64,
+    consecutive_frame_errors: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -280,6 +285,7 @@ impl std::fmt::Debug for NokhwaFrameSource {
             .field("has_active_index", &self.active_index.is_some())
             .field("device_count", &self.devices.len())
             .field("next_sequence", &self.next_sequence)
+            .field("consecutive_frame_errors", &self.consecutive_frame_errors)
             .finish()
     }
 }
@@ -308,40 +314,10 @@ impl FrameSource for NokhwaFrameSource {
         ensure_nokhwa_initialized()?;
         performance_trace("camera.initialize", started);
         let index = self.resolve_device_index(device_id)?;
-
-        if self.active_index.as_ref() == Some(&index)
-            && let Some(camera) = self.camera.as_mut()
-        {
-            if camera.is_stream_open() {
-                camera
-                    .stop_stream()
-                    .map_err(|error| map_nokhwa_error(&error))?;
-            }
-            configure_camera(camera, request)?;
-            let stream_started = Instant::now();
-            camera
-                .open_stream()
-                .map_err(|error| map_nokhwa_error(&error))?;
-            performance_trace("camera.stream", stream_started);
-            performance_trace("camera.restart-total", started);
-            self.next_sequence = 0;
-            return Ok(());
-        }
-
-        self.stop();
-        let open_started = Instant::now();
-        let mut camera = open_configured_camera(index.clone(), request)?;
-        performance_trace("camera.open", open_started);
-        let stream_started = Instant::now();
-        camera
-            .open_stream()
-            .map_err(|error| map_nokhwa_error(&error))?;
-        performance_trace("camera.stream", stream_started);
-        performance_trace("camera.start-total", started);
-        self.camera = Some(camera);
-        self.active_index = Some(index);
-        self.next_sequence = 0;
-        Ok(())
+        retry_camera_start(
+            || self.start_once(index.clone(), request, started),
+            || thread::sleep(CAMERA_START_RETRY_DELAY),
+        )
     }
 
     fn latest_frame(&mut self) -> Result<Option<VideoFrame>, CameraError> {
@@ -350,20 +326,33 @@ impl FrameSource for NokhwaFrameSource {
         };
         let first_frame = self.next_sequence == 0;
         let capture_started = Instant::now();
-        let buffer = camera.frame().map_err(|error| map_nokhwa_error(&error))?;
+        let buffer = match camera.frame() {
+            Ok(buffer) => buffer,
+            Err(error) => {
+                let error = map_nokhwa_error(&error);
+                tolerate_transient_frame_error(&mut self.consecutive_frame_errors, error)?;
+                return Ok(None);
+            }
+        };
         if first_frame {
             performance_trace("camera.first-frame-capture", capture_started);
         }
         let resolution = buffer.resolution();
         let decode_started = Instant::now();
-        let image = buffer
-            .decode_image::<RgbAFormat>()
-            .map_err(|error| map_nokhwa_error(&error))?;
+        let image = match buffer.decode_image::<RgbAFormat>() {
+            Ok(image) => image,
+            Err(error) => {
+                let error = map_nokhwa_error(&error);
+                tolerate_transient_frame_error(&mut self.consecutive_frame_errors, error)?;
+                return Ok(None);
+            }
+        };
         if first_frame {
             performance_trace("camera.first-frame-decode", decode_started);
         }
         let sequence = self.next_sequence;
         self.next_sequence = self.next_sequence.saturating_add(1);
+        self.consecutive_frame_errors = 0;
         Ok(Some(VideoFrame {
             width: resolution.width(),
             height: resolution.height(),
@@ -373,6 +362,9 @@ impl FrameSource for NokhwaFrameSource {
     }
 
     fn stop(&mut self) {
+        self.active_index = None;
+        self.next_sequence = 0;
+        self.consecutive_frame_errors = 0;
         let Some(mut camera) = self.camera.take() else {
             return;
         };
@@ -380,9 +372,95 @@ impl FrameSource for NokhwaFrameSource {
             let _ = camera.stop_stream();
         }
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(camera)));
-        self.active_index = None;
-        self.next_sequence = 0;
     }
+}
+
+impl NokhwaFrameSource {
+    fn start_once(
+        &mut self,
+        index: CameraIndex,
+        request: CaptureRequest,
+        overall_started: Instant,
+    ) -> Result<(), CameraError> {
+        let restarting = self.active_index.as_ref() == Some(&index) && self.camera.is_some();
+        let mut camera = if restarting {
+            let mut camera = self.camera.take().ok_or(CameraError::Backend)?;
+            self.active_index = None;
+            self.next_sequence = 0;
+            if camera.is_stream_open() {
+                camera
+                    .stop_stream()
+                    .map_err(|error| map_nokhwa_error(&error))?;
+            }
+            configure_camera(&mut camera, request)?;
+            camera
+        } else {
+            self.stop();
+            let open_started = Instant::now();
+            let camera = open_configured_camera(index.clone(), request)?;
+            performance_trace("camera.open", open_started);
+            camera
+        };
+
+        let stream_started = Instant::now();
+        camera
+            .open_stream()
+            .map_err(|error| map_nokhwa_error(&error))?;
+        performance_trace("camera.stream", stream_started);
+        performance_trace(
+            if restarting {
+                "camera.restart-total"
+            } else {
+                "camera.start-total"
+            },
+            overall_started,
+        );
+        self.camera = Some(camera);
+        self.active_index = Some(index);
+        self.next_sequence = 0;
+        self.consecutive_frame_errors = 0;
+        Ok(())
+    }
+}
+
+const fn tolerate_transient_frame_error(
+    consecutive_errors: &mut u8,
+    error: CameraError,
+) -> Result<(), CameraError> {
+    if !matches!(error, CameraError::Busy | CameraError::Backend) {
+        return Err(error);
+    }
+    *consecutive_errors = consecutive_errors.saturating_add(1);
+    if *consecutive_errors <= TRANSIENT_FRAME_ERROR_LIMIT {
+        Ok(())
+    } else {
+        Err(error)
+    }
+}
+
+fn retry_camera_start<T>(
+    mut operation: impl FnMut() -> Result<T, CameraError>,
+    mut wait: impl FnMut(),
+) -> Result<T, CameraError> {
+    for attempt in 1..=CAMERA_START_ATTEMPTS {
+        match operation() {
+            Ok(value) => return Ok(value),
+            Err(error)
+                if attempt < CAMERA_START_ATTEMPTS
+                    && matches!(error, CameraError::Busy | CameraError::Backend) =>
+            {
+                if std::env::var_os("CAMLET_TRACE_CAMERA").is_some() {
+                    eprintln!(
+                        "camlet-camera: retrying-start category={} attempt={attempt}/{CAMERA_START_ATTEMPTS}",
+                        camera_error_code(error)
+                    );
+                }
+                wait();
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("the bounded camera start loop always returns")
 }
 
 fn open_configured_camera(
@@ -616,7 +694,7 @@ const fn frame_format_preference(format: FrameFormat) -> u8 {
 
 fn map_nokhwa_error(error: &nokhwa::NokhwaError) -> CameraError {
     let message = error.to_string().to_lowercase();
-    if message.contains("permission")
+    let category = if message.contains("permission")
         || message.contains("access denied")
         || message.contains("not authorized")
     {
@@ -633,6 +711,42 @@ fn map_nokhwa_error(error: &nokhwa::NokhwaError) -> CameraError {
         CameraError::DeviceNotFound
     } else {
         CameraError::Backend
+    };
+    if std::env::var_os("CAMLET_TRACE_CAMERA").is_some() {
+        eprintln!(
+            "camlet-camera: backend-error kind={} category={}",
+            nokhwa_error_kind(error),
+            camera_error_code(category)
+        );
+    }
+    category
+}
+
+const fn nokhwa_error_kind(error: &nokhwa::NokhwaError) -> &'static str {
+    match error {
+        nokhwa::NokhwaError::UnitializedError => "uninitialized",
+        nokhwa::NokhwaError::InitializeError { .. } => "initialize",
+        nokhwa::NokhwaError::ShutdownError { .. } => "shutdown",
+        nokhwa::NokhwaError::GeneralError(_) => "general",
+        nokhwa::NokhwaError::StructureError { .. } => "structure",
+        nokhwa::NokhwaError::OpenDeviceError(..) => "open-device",
+        nokhwa::NokhwaError::GetPropertyError { .. } => "get-property",
+        nokhwa::NokhwaError::SetPropertyError { .. } => "set-property",
+        nokhwa::NokhwaError::OpenStreamError(_) => "open-stream",
+        nokhwa::NokhwaError::ReadFrameError(_) => "read-frame",
+        nokhwa::NokhwaError::ProcessFrameError { .. } => "process-frame",
+        nokhwa::NokhwaError::StreamShutdownError(_) => "stream-shutdown",
+        nokhwa::NokhwaError::UnsupportedOperationError(_) => "unsupported",
+        nokhwa::NokhwaError::NotImplementedError(_) => "not-implemented",
+    }
+}
+
+const fn camera_error_code(error: CameraError) -> &'static str {
+    match error {
+        CameraError::PermissionDenied => "permission-denied",
+        CameraError::DeviceNotFound => "device-not-found",
+        CameraError::Busy => "busy",
+        CameraError::Backend => "backend",
     }
 }
 
@@ -851,6 +965,9 @@ fn worker_loop(
                     frame_interval = request.frame_interval;
                     let result = source.start(device_id.as_deref(), request);
                     running = result.is_ok();
+                    if result.is_err() {
+                        source.stop();
+                    }
                     frames_until_refresh = 150;
                     if control_events
                         .send(CameraWorkerEvent::Started(result))
@@ -1038,8 +1155,9 @@ mod tests {
     use super::udev_capture_capability;
     use super::{
         CameraDevice, CameraError, CameraWorker, CameraWorkerCommand, CameraWorkerEvent,
-        CaptureRequest, FrameSource, ScriptedFrameSource, SyntheticFrameSource, VideoFrame,
-        cache_camera_devices, choose_camera_format, map_nokhwa_error,
+        CaptureRequest, FrameSource, NokhwaFrameSource, ScriptedFrameSource, SyntheticFrameSource,
+        VideoFrame, cache_camera_devices, choose_camera_format, map_nokhwa_error,
+        retry_camera_start, tolerate_transient_frame_error,
     };
     use std::time::Duration;
 
@@ -1268,6 +1386,77 @@ mod tests {
     }
 
     #[test]
+    fn transient_camera_start_failures_are_retried_but_permissions_are_not() {
+        let mut attempts = 0_u8;
+        let mut waits = 0_u8;
+        let recovered = retry_camera_start(
+            || {
+                attempts = attempts.saturating_add(1);
+                if attempts < 3 {
+                    Err(CameraError::Backend)
+                } else {
+                    Ok("preview")
+                }
+            },
+            || waits = waits.saturating_add(1),
+        );
+        assert_eq!(recovered, Ok("preview"));
+        assert_eq!((attempts, waits), (3, 2));
+
+        attempts = 0;
+        waits = 0;
+        let denied = retry_camera_start(
+            || {
+                attempts = attempts.saturating_add(1);
+                Err::<(), _>(CameraError::PermissionDenied)
+            },
+            || waits = waits.saturating_add(1),
+        );
+        assert_eq!(denied, Err(CameraError::PermissionDenied));
+        assert_eq!((attempts, waits), (1, 0));
+    }
+
+    #[test]
+    fn stopping_without_a_live_handle_still_clears_camera_identity() {
+        let mut source = NokhwaFrameSource {
+            camera: None,
+            active_index: Some(CameraIndex::Index(7)),
+            devices: Vec::new(),
+            next_sequence: 42,
+            consecutive_frame_errors: 2,
+        };
+
+        source.stop();
+
+        assert_eq!(source.active_index, None);
+        assert_eq!(source.next_sequence, 0);
+        assert_eq!(source.consecutive_frame_errors, 0);
+    }
+
+    #[test]
+    fn isolated_frame_errors_do_not_destroy_a_healthy_stream() {
+        let mut consecutive_errors = 0;
+        for _ in 0..3 {
+            assert_eq!(
+                tolerate_transient_frame_error(&mut consecutive_errors, CameraError::Backend),
+                Ok(())
+            );
+        }
+        assert_eq!(consecutive_errors, 3);
+        assert_eq!(
+            tolerate_transient_frame_error(&mut consecutive_errors, CameraError::Backend),
+            Err(CameraError::Backend)
+        );
+
+        consecutive_errors = 0;
+        assert_eq!(
+            tolerate_transient_frame_error(&mut consecutive_errors, CameraError::PermissionDenied),
+            Err(CameraError::PermissionDenied)
+        );
+        assert_eq!(consecutive_errors, 0);
+    }
+
+    #[test]
     fn worker_uses_capacity_one_and_joins_after_release() {
         struct ReleasingSource {
             inner: SyntheticFrameSource,
@@ -1336,5 +1525,55 @@ mod tests {
         );
         assert!(worker.shutdown());
         assert_eq!(stops.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn worker_releases_a_source_after_a_failed_start() {
+        struct FailingStartSource {
+            stops: Arc<AtomicU64>,
+        }
+
+        impl FrameSource for FailingStartSource {
+            fn devices(&mut self) -> Result<Vec<CameraDevice>, CameraError> {
+                Ok(Vec::new())
+            }
+
+            fn start(
+                &mut self,
+                _device_id: Option<&str>,
+                _request: CaptureRequest,
+            ) -> Result<(), CameraError> {
+                Err(CameraError::Backend)
+            }
+
+            fn latest_frame(&mut self) -> Result<Option<VideoFrame>, CameraError> {
+                Ok(None)
+            }
+
+            fn stop(&mut self) {
+                self.stops.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        let stops = Arc::new(AtomicU64::new(0));
+        let worker_stops = Arc::clone(&stops);
+        let worker = CameraWorker::spawn(move || {
+            Box::new(FailingStartSource {
+                stops: worker_stops,
+            })
+        })
+        .unwrap_or_else(|error| unreachable!("{error}"));
+        let events = worker.events();
+
+        assert!(worker.send(CameraWorkerCommand::Start {
+            device_id: None,
+            request: request(),
+        }));
+        assert_eq!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(CameraWorkerEvent::Started(Err(CameraError::Backend)))
+        );
+        assert_eq!(stops.load(Ordering::Relaxed), 1);
+        assert!(worker.shutdown());
     }
 }
